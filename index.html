@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1A56DB">
+<title>PSIF — ระบบบันทึกความปลอดภัย</title>
+<style>
+:root{
+  --blue:#1A56DB; --blue-dark:#1E3A8A; --blue-light:#EBF4FF; --blue-soft:#BFDBFE;
+  --bg:#F0F4FF; --card:#fff; --border:#DBEAFE; --text:#0F172A; --muted:#64748B; --muted2:#94A3B8;
+  --green:#059669; --green-bg:#ECFDF5; --green-bd:#A7F3D0;
+  --orange:#D97706; --orange-bg:#FFFBEB; --orange-bd:#FDE68A;
+  --red:#DC2626; --red-bg:#FEF2F2; --red-bd:#FECACA;
+  --purple:#7C3AED; --purple-bg:#F5F3FF;
+  --shadow:0 1px 2px rgba(30,66,159,.06),0 2px 8px rgba(30,66,159,.07);
+  --shadow-lg:0 4px 12px rgba(30,66,159,.1),0 12px 28px rgba(30,66,159,.14);
+  --ring:0 0 0 3px rgba(26,86,219,.16);
+  --r:14px; --r-sm:9px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:"Segoe UI",system-ui,-apple-system,"Sarabun","Noto Sans Thai",sans-serif;
+  background:var(--bg); color:var(--text); font-size:15px; line-height:1.5;
+  padding-bottom:84px;
+}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:15px}
+h1,h2,h3,h4{margin:0}
+a{color:var(--blue)}
+.hidden{display:none!important}
+
+/* ---------- top progress bar ---------- */
+#topbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--blue);z-index:9999;transition:width .25s ease,opacity .35s}
+#topbar.go{opacity:1}
+
+/* ---------- header ---------- */
+.appbar{position:sticky;top:0;z-index:50;background:linear-gradient(120deg,var(--blue),var(--blue-dark));color:#fff;
+  padding:12px 16px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow)}
+.appbar .logo{font-size:20px;font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+.appbar .sp{flex:1}
+.appbar .who{font-size:12.5px;opacity:.95;text-align:right;line-height:1.25}
+.iconbtn{background:rgba(255,255,255,.16);border:none;color:#fff;width:38px;height:38px;border-radius:10px;font-size:17px;display:grid;place-items:center}
+.iconbtn:active{background:rgba(255,255,255,.3)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:760px;margin:0 auto;padding:14px}
+.wrap.wide{max-width:1180px}
+.pane{display:none}
+.pane.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- cards ---------- */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
+.card h3{font-size:15.5px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.sub{color:var(--muted);font-size:13px}
+.row{display:flex;gap:10px}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:620px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+
+/* ---------- form ---------- */
+label.fl{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:12px 0 5px}
+label.fl .req{color:var(--red)}
+.inp,select.inp,textarea.inp{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:var(--r-sm);background:#fff;color:var(--text);transition:border .15s,box-shadow .15s}
+.inp:focus,select.inp:focus,textarea.inp:focus{outline:none;border-color:var(--blue);box-shadow:var(--ring)}
+textarea.inp{resize:vertical;min-height:74px}
+
+/* ---------- buttons ---------- */
+.btn{border:none;border-radius:var(--r-sm);padding:11px 16px;font-weight:700;font-size:14.5px;display:inline-flex;align-items:center;gap:7px;justify-content:center;transition:transform .08s,filter .15s}
+.btn:active{transform:scale(.97)}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-red{background:var(--red);color:#fff}
+.btn-orange{background:var(--orange);color:#fff}
+.btn-ghost{background:var(--blue-light);color:var(--blue)}
+.btn-line{background:#fff;border:1.5px solid var(--border);color:var(--text)}
+.btn-sm{padding:7px 12px;font-size:13px;border-radius:8px}
+.btn-block{width:100%}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ---------- badges & chips ---------- */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid}
+.b-blue{background:var(--blue-light);color:var(--blue);border-color:var(--blue-soft)}
+.b-green{background:var(--green-bg);color:var(--green);border-color:var(--green-bd)}
+.b-orange{background:var(--orange-bg);color:var(--orange);border-color:var(--orange-bd)}
+.b-red{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
+.b-gray{background:#F1F5F9;color:var(--muted);border-color:#E2E8F0}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;padding:7px 14px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--muted);font-size:13px;font-weight:600}
+.chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+/* ---------- stepper ---------- */
+.stepper{display:flex;align-items:center;margin:6px 0}
+.step{flex:1;text-align:center;position:relative;font-size:10.5px;color:var(--muted2);font-weight:600}
+.step .dot{width:22px;height:22px;border-radius:50%;background:#E2E8F0;color:#fff;display:grid;place-items:center;margin:0 auto 4px;font-size:11px;font-weight:800;position:relative;z-index:2}
+.step::before{content:"";position:absolute;top:11px;left:-50%;width:100%;height:2px;background:#E2E8F0;z-index:1}
+.step:first-child::before{display:none}
+.step.done .dot{background:var(--green)}
+.step.done{color:var(--green)}
+.step.cur .dot{background:var(--blue);box-shadow:0 0 0 4px var(--blue-light)}
+.step.cur{color:var(--blue)}
+.step.rej .dot{background:var(--red)}
+.step.done::before,.step.cur::before{background:var(--green)}
+
+/* ---------- stat tiles ---------- */
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--shadow)}
+.stat .n{font-size:26px;font-weight:800;line-height:1}
+.stat .l{font-size:12px;color:var(--muted);margin-top:4px}
+.stat.blue{background:linear-gradient(135deg,#fff,var(--blue-light))}
+.stat.green .n{color:var(--green)} .stat.orange .n{color:var(--orange)} .stat.red .n{color:var(--red)} .stat.blue .n{color:var(--blue)}
+
+/* ---------- bars ---------- */
+.bar-row{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+.bar-row .lab{width:130px;flex-shrink:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-track{flex:1;height:18px;background:#F1F5F9;border-radius:6px;overflow:hidden}
+.bar-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--blue-dark));border-radius:6px;transition:width .5s}
+.bar-row .val{width:46px;text-align:right;font-weight:700;font-size:12.5px}
+
+/* ---------- list cards ---------- */
+.item{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:13px;box-shadow:var(--shadow);margin-bottom:11px;cursor:pointer;transition:box-shadow .15s,transform .08s}
+.item:active{transform:scale(.995)}
+.item .tt{font-weight:700;font-size:14.5px;margin-bottom:3px}
+.item .mt{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;margin-top:5px}
+.thumbs{display:flex;gap:6px;margin-top:8px}
+.thumbs img{width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+
+/* ---------- table ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th,.tbl td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--border)}
+.tbl th{background:var(--blue-light);color:var(--blue-dark);font-size:12px;position:sticky;top:0}
+.tbl tr:active{background:var(--blue-light)}
+.tbl td.num,.tbl th.num{text-align:center}
+.scroll-x{overflow-x:auto}
+
+/* ---------- modal ---------- */
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(2px)}
+.modal-bg.open{display:flex}
+.modal{background:#fff;width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;overflow:auto;box-shadow:var(--shadow-lg);animation:slideup .25s ease}
+@media(min-width:560px){.modal-bg{align-items:center}.modal{border-radius:18px}}
+@keyframes slideup{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+.modal-hd{position:sticky;top:0;background:#fff;display:flex;align-items:center;padding:15px 16px;border-bottom:1px solid var(--border);z-index:2}
+.modal-tt{font-weight:800;font-size:16px;flex:1}
+.modal-cl{background:#F1F5F9;border:none;width:32px;height:32px;border-radius:8px;font-size:16px}
+.modal-bd{padding:16px}
+
+/* ---------- bottom nav ---------- */
+.bnav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);display:flex;justify-content:space-around;align-items:center;
+  padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:60;box-shadow:0 -2px 12px rgba(30,66,159,.07)}
+.bnav button{background:none;border:none;color:var(--muted2);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;font-weight:600;padding:6px 8px;border-radius:10px;flex:1}
+.bnav button .ico{font-size:20px}
+.bnav button.active{color:var(--blue)}
+.bnav button.fab{position:relative;color:#fff;flex:0 0 auto}
+.bnav button.fab .ico{background:linear-gradient(135deg,var(--blue),var(--blue-dark));width:52px;height:52px;border-radius:50%;display:grid;place-items:center;margin-top:-26px;box-shadow:var(--shadow-lg);font-size:23px}
+.bnav button.fab .lbl{color:var(--blue);margin-top:1px}
+
+/* ---------- login ---------- */
+.lockwrap{position:fixed;inset:0;background:linear-gradient(150deg,var(--blue),var(--blue-dark));display:grid;place-items:center;z-index:300;padding:22px}
+.lockcard{background:#fff;border-radius:22px;padding:30px 24px;width:100%;max-width:380px;box-shadow:var(--shadow-lg);text-align:center}
+.lockcard .ic{font-size:46px}
+.lockcard h1{font-size:22px;margin:8px 0 2px;color:var(--blue-dark)}
+.lock-sub{color:var(--muted);font-size:13.5px;margin-bottom:18px}
+.lockcard input{width:100%;text-align:center;font-size:20px;font-weight:700;letter-spacing:1px;padding:13px;border:2px solid var(--border);border-radius:12px;text-transform:uppercase}
+.lockcard input:focus{outline:none;border-color:var(--blue);box-shadow:var(--ring)}
+.lock-foot{font-size:11.5px;color:var(--muted2);margin-top:14px}
+.lock-err{color:var(--red);font-size:13px;font-weight:600;min-height:18px;margin-top:8px}
+
+/* ---------- toast ---------- */
+#toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(20px);opacity:0;background:#0F172A;color:#fff;padding:11px 18px;border-radius:12px;font-size:14px;font-weight:600;z-index:500;transition:.3s;box-shadow:var(--shadow-lg);max-width:90vw;text-align:center;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.green{background:var(--green)} #toast.red{background:var(--red)} #toast.orange{background:var(--orange)}
+
+.empty{text-align:center;color:var(--muted2);padding:34px 10px;font-size:14px}
+.empty .ic{font-size:38px;display:block;margin-bottom:6px}
+.photo-full{width:100%;border-radius:12px;border:1px solid var(--border);margin-top:6px}
+.dropzone{border:2px dashed var(--blue-soft);border-radius:12px;padding:18px;text-align:center;color:var(--muted);background:var(--blue-light)}
+.dropzone.has{border-style:solid;padding:8px}
+.kv{display:flex;gap:10px;font-size:13.5px;padding:5px 0;border-bottom:1px dashed var(--border)}
+.kv .k{color:var(--muted);width:120px;flex-shrink:0}
+.warn{background:var(--orange-bg);border:1px solid var(--orange-bd);border-radius:10px;padding:11px;font-size:13px;color:#92400E;margin:10px 0}
+.note{background:var(--blue-light);border:1px solid var(--blue-soft);border-radius:10px;padding:11px;font-size:12.5px;color:var(--blue-dark)}
+</style>
+</head>
+<body>
+<div id="topbar"></div>
+
+<!-- ============ LOGIN ============ -->
+<div class="lockwrap" id="lock">
+  <div class="lockcard">
+    <div class="ic">🦺</div>
+    <h1>PSIF</h1>
+    <div class="lock-sub">ระบบบันทึก & ติดตามความปลอดภัย<br>กรอกรหัสพนักงานเพื่อเข้าใช้งาน</div>
+    <input id="lockInput" placeholder="รหัสพนักงาน" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="lock-err" id="lockErr"></div>
+    <button class="btn btn-blue btn-block" style="margin-top:10px" onclick="doLogin()">เข้าสู่ระบบ →</button>
+    <div class="lock-foot">ตัวอย่าง: L-1827, G-260, PST742</div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="hidden">
+  <div class="appbar">
+    <div class="logo">🦺 PSIF</div>
+    <div class="sp"></div>
+    <div class="who" id="who"></div>
+    <button class="iconbtn" title="ตั้งค่า" onclick="setPane('settings')">⚙️</button>
+    <button class="iconbtn" title="ออกจากระบบ" onclick="logout()">⏻</button>
+  </div>
+
+  <!-- ===== DASHBOARD ===== -->
+  <div class="pane active" id="pane-home">
+    <div class="wrap" id="homeWrap">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="font-size:18px">📈 ภาพรวม</h2>
+        <div class="row" style="gap:6px;align-items:center">
+          <select class="inp btn-sm" id="dashYear" style="width:auto;padding:6px 8px" onchange="renderDash()"></select>
+          <button class="btn btn-line btn-sm" id="viewToggle" onclick="toggleDashView()">🖥️ คอมพิวเตอร์</button>
+        </div>
+      </div>
+      <div id="dashBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== TRACKER / LIST ===== -->
+  <div class="pane" id="pane-list">
+    <div class="wrap">
+      <h2 style="font-size:18px;margin-bottom:8px">🗂️ ติดตามงาน</h2>
+      <input class="inp" id="listSearch" placeholder="🔍 ค้นหา หัวข้อ / เครื่องจักร / ผู้รายงาน" oninput="renderList()" style="margin-bottom:8px">
+      <div class="chips" id="listChips"></div>
+      <div id="listBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== CREATE ===== -->
+  <div class="pane" id="pane-create">
+    <div class="wrap">
+      <h2 style="font-size:18px;margin-bottom:10px">✏️ บันทึก PSIF ใหม่</h2>
+      <div class="card">
+        <label class="fl">ผู้รายงาน</label>
+        <input class="inp" id="cReporter" readonly style="background:var(--blue-light)">
+        <div class="grid g2">
+          <div><label class="fl">หน่วยงาน / VSM</label><input class="inp" id="cVsm" list="vsmList" placeholder="เช่น VSM4"></div>
+          <div><label class="fl">ประเภท <span class="req">*</span></label><select class="inp" id="cCat"></select></div>
+        </div>
+        <div class="grid g2">
+          <div><label class="fl">พื้นที่</label><input class="inp" id="cArea" list="areaList" placeholder="เลือก/พิมพ์พื้นที่"></div>
+          <div><label class="fl">เครื่องจักร / จุด</label><input class="inp" id="cMachine" list="machineList" placeholder="เช่น เครื่อง A-12"></div>
+        </div>
+        <label class="fl">หัวข้อเรื่อง <span class="req">*</span></label>
+        <input class="inp" id="cTitle" placeholder="สรุปสั้น ๆ ว่าพบอะไร" oninput="liveDupe()">
+        <div id="dupeHint"></div>
+        <label class="fl">รายละเอียด</label>
+        <textarea class="inp" id="cDetail" placeholder="อธิบายสภาพ/เหตุการณ์ที่พบ"></textarea>
+        <label class="fl">ข้อเสนอแนะการแก้ไข</label>
+        <textarea class="inp" id="cSuggest" placeholder="ควรแก้ไขอย่างไร"></textarea>
+        <label class="fl">รูปภาพก่อนแก้ไข <span class="req">* (บังคับ)</span></label>
+        <div class="dropzone" id="cPhotoZone" onclick="document.getElementById('cPhoto').click()">
+          📷 แตะเพื่อถ่ายรูป / เลือกรูป
+        </div>
+        <input type="file" id="cPhoto" accept="image/*" capture="environment" class="hidden" onchange="onPickPhoto(this,'before')">
+        <button class="btn btn-blue btn-block" style="margin-top:16px" onclick="submitPsif()">💾 บันทึกเข้าระบบ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SAFETY ===== -->
+  <div class="pane" id="pane-safety">
+    <div class="wrap">
+      <h2 style="font-size:18px;margin-bottom:8px">🛡️ Safety ตรวจสอบ</h2>
+      <div class="note" id="safetyNote"></div>
+      <div class="chips" id="safetyChips"></div>
+      <div id="safetyBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== REPORT ===== -->
+  <div class="pane" id="pane-report">
+    <div class="wrap">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="font-size:18px">📊 รายงาน</h2>
+        <select class="inp btn-sm" id="repYear" style="width:auto;padding:6px 8px" onchange="renderReport()"></select>
+      </div>
+      <div class="chips" id="repChips"></div>
+      <div id="repBody"></div>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS ===== -->
+  <div class="pane" id="pane-settings">
+    <div class="wrap">
+      <h2 style="font-size:18px;margin-bottom:10px">⚙️ ตั้งค่า</h2>
+      <div class="card">
+        <h3>☁️ ฐานข้อมูลออนไลน์ (API)</h3>
+        <div class="sub" style="margin-bottom:8px">ทุกคนที่ใส่ URL เดียวกันจะเห็นและแก้ไขข้อมูลร่วมกัน — เว้นว่าง = โหมดทดลอง (เก็บในเครื่องนี้เท่านั้น)</div>
+        <input class="inp" id="apiUrl" placeholder="https://psif-api.xxx.workers.dev">
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn-blue btn-sm" onclick="saveApi()">บันทึก & เชื่อมต่อ</button>
+          <button class="btn btn-line btn-sm" onclick="testApi()">ทดสอบ</button>
+        </div>
+        <div id="apiStatus" class="sub" style="margin-top:8px"></div>
+      </div>
+      <div id="adminArea"></div>
+    </div>
+  </div>
+
+  <!-- ===== bottom nav ===== -->
+  <nav class="bnav">
+    <button data-pane="home"   onclick="setPane('home')"><span class="ico">📈</span><span class="lbl">ภาพรวม</span></button>
+    <button data-pane="list"   onclick="setPane('list')"><span class="ico">🗂️</span><span class="lbl">ติดตาม</span></button>
+    <button data-pane="create" class="fab" onclick="setPane('create')"><span class="ico">✏️</span><span class="lbl">บันทึก</span></button>
+    <button data-pane="safety" onclick="setPane('safety')"><span class="ico">🛡️</span><span class="lbl">Safety</span></button>
+    <button data-pane="report" onclick="setPane('report')"><span class="ico">📊</span><span class="lbl">รายงาน</span></button>
+  </nav>
+</div>
+
+<!-- datalists -->
+<datalist id="vsmList"></datalist>
+<datalist id="areaList"></datalist>
+<datalist id="machineList"></datalist>
+
+<!-- modal -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-hd"><span class="modal-tt" id="modalTt">รายละเอียด</span><button class="modal-cl" onclick="closeModal()">✕</button></div>
+    <div class="modal-bd" id="modalBd"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ====================================================================
+ *  PSIF app — vanilla JS. Works online (Cloudflare Worker) or offline (demo).
+ * ==================================================================== */
+const $ = id => document.getElementById(id);
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const yr = () => new Date().getFullYear();
+
+/* ---- safe localStorage (memory: data:/file URLs can throw) ---- */
+const LS = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(_){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
+};
+
+let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
+let API = LS.get('psif_api','');
+let CURRENT_USER = null;
+let adminUnlocked = false;
+
+const state = {
+  employees: [], areas: [], categories: [], targets: [], issuances: [], items: [],
+};
+
+const STATUS = {
+  recorded:  {label:'บันทึกเข้าระบบ', cls:'b-blue'},
+  safety:    {label:'Safety ตรวจแล้ว', cls:'b-purple'},
+  inprogress:{label:'กำลังดำเนินการ', cls:'b-orange'},
+  done:      {label:'เสร็จ', cls:'b-green'},
+};
+const STEPS = ['บันทึกเข้าระบบ','Safety อนุมัติ','กำลังดำเนินการ','เสร็จ'];
+const BONUS = d => d>=6?10 : d===5?7.5 : d===4?5 : 0;
+
+/* ---------------- toast / loading ---------------- */
+let _toastT;
+function toast(msg,kind=''){ const t=$('toast'); t.textContent=msg; t.className='show '+kind; clearTimeout(_toastT); _toastT=setTimeout(()=>t.className='',2400); }
+let _busy=0;
+function busy(on){ const b=$('topbar'); if(on){ _busy++; b.classList.add('go'); b.style.width='75%'; } else { _busy=Math.max(0,_busy-1); if(_busy)return; b.style.width='100%'; setTimeout(()=>{b.classList.remove('go');b.style.width='0';},300);} }
+
+/* ---------------- API helper ---------------- */
+async function api(path,opts={}){
+  const url = API.replace(/\/+$/,'') + path;
+  busy(true);
+  try{
+    const res = await fetch(url,{
+      method: opts.method || (opts.body?'POST':'GET'),
+      headers: opts.form?undefined:{'Content-Type':'application/json'},
+      body: opts.form?opts.form:(opts.body?JSON.stringify(opts.body):undefined),
+    });
+    const data = await res.json().catch(()=>({ok:false,error:'invalid response'}));
+    if(!res.ok || data.ok===false) throw new Error(data.error||('HTTP '+res.status));
+    return data;
+  } finally { busy(false); }
+}
+const online = () => !!API;
+
+/* ====================================================================
+ *  STORE — unified facade (online via API, offline via localStorage)
+ * ==================================================================== */
+const DEMO_KEY='psif_demo';
+function demoLoad(){ const d=LS.get(DEMO_KEY,null); if(d){ Object.assign(state,d); }
+  else { Object.assign(state,{employees:DEFAULT_EMP,areas:DEFAULT_AREAS,categories:DEFAULT_CATS,targets:[{year:yr(),per_person_target:6}],issuances:[],items:[]}); demoSave(); } }
+function demoSave(){ if(!online()) LS.set(DEMO_KEY,{employees:state.employees,areas:state.areas,categories:state.categories,targets:state.targets,issuances:state.issuances,items:state.items}); }
+
+async function bootstrap(){
+  if(online()){
+    const d = await api('/bootstrap');
+    state.employees=d.employees; state.areas=d.areas; state.categories=d.categories;
+    state.targets=d.targets; state.issuances=d.issuances;
+    const r = await api('/psif'); state.items=r.items;
+  } else {
+    demoLoad();
+  }
+}
+async function reloadItems(){
+  if(online()){ const r=await api('/psif'); state.items=r.items; }
+}
+
+async function createPsif(rec,photos){
+  if(online()){
+    const d = await api('/psif',{body:{...rec,photos}});
+    state.items.unshift(d.item); return d.item;
+  } else {
+    const id = (Math.max(0,...state.items.map(i=>i.id))+1);
+    const item = {id,no:'',status:'recorded',safety_result:'pending',safety_note:'',
+      created_at:new Date().toISOString().slice(0,19).replace('T',' '),
+      photos:photos||[], ...rec};
+    state.items.unshift(item); demoSave(); return item;
+  }
+}
+async function patchPsif(id,patch,photos){
+  if(online()){
+    const d = await api('/psif/'+id,{method:'PATCH',body:{...patch,photos}});
+    const i = state.items.findIndex(x=>x.id==id); if(i>=0) state.items[i]=d.item;
+    return d.item;
+  } else {
+    const it = state.items.find(x=>x.id==id); Object.assign(it,patch);
+    if(photos) it.photos=[...(it.photos||[]),...photos];
+    demoSave(); return it;
+  }
+}
+async function deletePsif(id){
+  if(online()) await api('/psif/'+id,{method:'DELETE'});
+  state.items = state.items.filter(x=>x.id!=id); demoSave();
+}
+async function upsertMaster(table,obj){
+  if(online()) await api('/'+table,{body:obj});
+  const arr = state[table]; const i = arr.findIndex(x=>x.id===obj.id);
+  if(i>=0) arr[i]={...arr[i],...obj}; else arr.push(obj); demoSave();
+}
+async function delMaster(table,id){
+  if(online()) await api('/'+table+'/'+encodeURIComponent(id),{method:'DELETE'});
+  state[table]=state[table].filter(x=>x.id!==id); demoSave();
+}
+async function setTarget(year,n){
+  if(online()) await api('/targets',{body:{year,per_person_target:n}});
+  const t=state.targets.find(x=>x.year==year); if(t)t.per_person_target=n; else state.targets.push({year,per_person_target:n}); demoSave();
+}
+async function addIssuance(vsm,year){
+  if(online()){ const d=await api('/issuances',{body:{vsm,year,requested_by:CURRENT_USER.id}}); state.issuances.push({id:d.id,vsm,year,requested_by:CURRENT_USER.id}); }
+  else { state.issuances.push({id:Date.now(),vsm,year,requested_by:CURRENT_USER.id}); }
+  demoSave();
+}
+function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
+
+/* ---- duplicate search (keyword + machine), mirrors worker ---- */
+function norm(s){return (s||'').toLowerCase().trim().replace(/\s+/g,' ');}
+function toks(s){return new Set(norm(s).replace(/[^\p{L}\p{N} ]/gu,' ').split(/\s+/).filter(w=>w.length>=2));}
+function jacc(a,b){if(!a.size||!b.size)return 0;let i=0;for(const x of a)if(b.has(x))i++;return i/(a.size+b.size-i);}
+async function findDupes(title,machine,excludeId){
+  if(online()){
+    const q=new URLSearchParams({title:title||'',machine:machine||'',year:yr()}); if(excludeId)q.set('exclude',excludeId);
+    const d=await api('/dupe?'+q.toString()); return d.candidates;
+  }
+  const tt=toks(title), mn=norm(machine), out=[];
+  for(const r of state.items){
+    if(excludeId&&r.id==excludeId)continue;
+    const sm=mn&&norm(r.machine)===mn; let sc=sm?0.4:0; const ov=jacc(tt,toks(r.title)); sc+=ov*0.6;
+    if(sc>=0.25||(sm&&ov>0)) out.push({...r,_score:Math.round(sc*100),same_machine:sm});
+  }
+  return out.sort((a,b)=>b._score-a._score).slice(0,8);
+}
+
+/* ---- photos ---- */
+function resizeImage(file,max=1280,q=0.8){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let{width:w,height:h}=img; if(w>h&&w>max){h=h*max/w;w=max;} else if(h>max){w=w*max/h;h=max;}
+      const c=document.createElement('canvas'); c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h); URL.revokeObjectURL(url);
+      const dataURL=c.toDataURL('image/jpeg',q);
+      c.toBlob(b=>resolve({blob:b,dataURL}),'image/jpeg',q);
+    };
+    img.onerror=reject; img.src=url;
+  });
+}
+async function uploadPhoto(file,kind,psifId){
+  const {blob,dataURL}=await resizeImage(file);
+  if(!online()) return {kind,key:dataURL};
+  const fd=new FormData(); fd.append('file',blob,'photo.jpg'); fd.append('kind',kind); fd.append('psif_id',psifId||'tmp');
+  const d=await api('/photo',{form:fd}); return {kind,key:d.key};
+}
+function photoSrc(p){ return (p.key||'').startsWith('data:') ? p.key : API.replace(/\/+$/,'')+'/photo/'+encodeURIComponent(p.key); }
+
+/* ====================================================================
+ *  LOGIN
+ * ==================================================================== */
+async function bootApp(){
+  try{ await bootstrap(); }
+  catch(e){ toast('เชื่อมต่อ API ไม่ได้: '+e.message,'red'); demoLoad(); }
+  const saved = LS.get('psif_user',null);
+  if(saved && state.employees.find(e=>e.id===saved.id)){ CURRENT_USER=saved; enterApp(); }
+}
+async function doLogin(){
+  const v=$('lockInput').value.trim().toUpperCase();
+  if(!v){ $('lockErr').textContent='กรอกรหัสพนักงาน'; return; }
+  if(!state.employees.length){ try{await bootstrap();}catch(_){} }
+  const emp = state.employees.find(e=>(e.id||'').toUpperCase()===v);
+  if(!emp){ $('lockErr').textContent='ไม่พบรหัสพนักงานนี้'; return; }
+  CURRENT_USER={id:emp.id,name:emp.name,vsm:emp.vsm||'',role:emp.role||'user'};
+  LS.set('psif_user',CURRENT_USER);
+  enterApp();
+}
+function enterApp(){
+  $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+  const roleTxt = CURRENT_USER.role==='admin'?' · Admin':CURRENT_USER.role==='safety'?' · Safety':'';
+  $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+roleTxt;
+  fillStaticUI(); setPane('home');
+}
+function logout(){ LS.set('psif_user',null); CURRENT_USER=null; adminUnlocked=false; location.reload(); }
+function isAdmin(){ return CURRENT_USER && (CURRENT_USER.role==='admin' || adminUnlocked); }
+function isSafety(){ return CURRENT_USER && (CURRENT_USER.role==='safety' || CURRENT_USER.role==='admin' || adminUnlocked); }
+function requireAdmin(){
+  if(isAdmin()) return true;
+  const pw=prompt('🔐 เฉพาะ Admin — กรอกรหัสผ่าน:'); if(pw==null)return false;
+  if(pw!==ADMIN_PASSWORD){ toast('รหัสผ่านไม่ถูกต้อง','red'); return false; }
+  adminUnlocked=true; toast('🔓 ปลดล็อก Admin','green'); return true;
+}
+
+/* ---------------- static UI fills ---------------- */
+function fillStaticUI(){
+  // category select
+  $('cCat').innerHTML='<option value="">— เลือกประเภท —</option>'+state.categories.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  // datalists
+  const vsms=[...new Set(state.employees.map(e=>e.vsm).concat(state.areas.map(a=>a.vsm)).filter(Boolean))];
+  $('vsmList').innerHTML=vsms.map(v=>`<option value="${esc(v)}">`).join('');
+  $('areaList').innerHTML=state.areas.map(a=>`<option value="${esc(a.name)}">`).join('');
+  $('machineList').innerHTML=[...new Set(state.items.map(i=>i.machine).filter(Boolean))].map(m=>`<option value="${esc(m)}">`).join('');
+  // reporter + vsm default
+  $('cReporter').value=CURRENT_USER.name+' ('+CURRENT_USER.id+')';
+  if(!$('cVsm').value) $('cVsm').value=CURRENT_USER.vsm||'';
+  // year selectors
+  const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
+  const opts=years.map(y=>`<option value="${y}">ปี ${y}</option>`).join('');
+  $('dashYear').innerHTML=opts; $('repYear').innerHTML=opts;
+  // api field
+  $('apiUrl').value=API;
+}
+
+/* ---------------- navigation ---------------- */
+let dashWide = LS.get('psif_dashwide',false);
+function setPane(p){
+  document.querySelectorAll('.pane').forEach(el=>el.classList.remove('active'));
+  $('pane-'+p).classList.add('active');
+  document.querySelectorAll('.bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===p));
+  window.scrollTo(0,0);
+  if(p==='home') renderDash();
+  if(p==='list') renderList();
+  if(p==='safety') renderSafety();
+  if(p==='report') renderReport();
+  if(p==='create') refreshCreate();
+  if(p==='settings') renderSettings();
+}
+
+/* ====================================================================
+ *  CREATE
+ * ==================================================================== */
+let pendingPhoto=null;
+function refreshCreate(){ fillStaticUI(); }
+async function onPickPhoto(input,kind){
+  const f=input.files[0]; if(!f)return;
+  try{
+    const {dataURL}=await resizeImage(f); pendingPhoto={file:f,dataURL};
+    const z=$('cPhotoZone'); z.classList.add('has'); z.innerHTML=`<img src="${dataURL}" style="max-height:150px;border-radius:8px"><div class="sub">แตะเพื่อเปลี่ยนรูป</div>`;
+  }catch(e){ toast('อ่านรูปไม่ได้','red'); }
+}
+let _dupeT;
+function liveDupe(){ clearTimeout(_dupeT); _dupeT=setTimeout(async()=>{
+  const t=$('cTitle').value.trim(); if(t.length<3){$('dupeHint').innerHTML='';return;}
+  const c=await findDupes(t,$('cMachine').value.trim());
+  $('dupeHint').innerHTML = c.length? `<div class="warn">⚠️ อาจซ้ำกับ ${c.length} เรื่อง: ${c.slice(0,3).map(x=>esc(x.title)).join(' · ')}</div>`:'';
+},450); }
+async function submitPsif(){
+  const title=$('cTitle').value.trim(), cat=$('cCat').value;
+  if(!title){ toast('กรอกหัวข้อเรื่อง','red'); return; }
+  if(!cat){ toast('เลือกประเภท','red'); return; }
+  if(!pendingPhoto){ toast('ต้องแนบรูปก่อนแก้ไข','red'); return; }
+  const machine=$('cMachine').value.trim();
+  const dupes=await findDupes(title,machine);
+  if(dupes.length){ if(!await confirmDupe(dupes)) return; }
+  try{
+    const photo=await uploadPhoto(pendingPhoto.file,'before');
+    const rec={reporter_id:CURRENT_USER.id,reporter_name:CURRENT_USER.name,vsm:$('cVsm').value.trim(),
+      area_id:$('cArea').value.trim(),machine,category:cat,title,detail:$('cDetail').value.trim(),
+      suggestion:$('cSuggest').value.trim(),year:yr()};
+    await createPsif(rec,[photo]);
+    toast('✅ บันทึกเข้าระบบแล้ว','green');
+    ['cTitle','cDetail','cSuggest','cMachine','cArea'].forEach(id=>$(id).value='');
+    pendingPhoto=null; const z=$('cPhotoZone'); z.classList.remove('has'); z.innerHTML='📷 แตะเพื่อถ่ายรูป / เลือกรูป';
+    $('dupeHint').innerHTML='';
+    setPane('list');
+  }catch(e){ toast('บันทึกไม่สำเร็จ: '+e.message,'red'); }
+}
+function confirmDupe(dupes){
+  return new Promise(resolve=>{
+    openModal('⚠️ ตรวจพบเรื่องที่อาจซ้ำ', `
+      <div class="warn">ระบบพบ ${dupes.length} เรื่องที่หัวข้อ/เครื่องจักรคล้ายกัน โปรดตรวจสอบก่อนบันทึกซ้ำ</div>
+      ${dupes.map(d=>`<div class="item" style="cursor:default">
+        <div class="tt">${esc(d.title)} <span class="badge b-gray">คล้าย ${d._score||0}%</span></div>
+        <div class="mt"><span>🔧 ${esc(d.machine||'-')}</span><span>👤 ${esc(d.reporter_name||'')}</span>${d.same_machine?'<span class="badge b-orange">เครื่องเดียวกัน</span>':''}</div>
+      </div>`).join('')}
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-line btn-block" onclick="_dupeResolve(false)">ยกเลิก</button>
+        <button class="btn btn-orange btn-block" onclick="_dupeResolve(true)">ยืนยันบันทึกต่อ</button>
+      </div>`);
+    window._dupeResolve=(v)=>{ closeModal(); resolve(v); };
+  });
+}
+
+/* ====================================================================
+ *  TRACKER / LIST
+ * ==================================================================== */
+let listFilter='all';
+function stageOf(it){
+  if(it.safety_result==='rejected') return 'rejected';
+  return it.status;
+}
+function stepIndex(it){ // 0..4 completed steps
+  if(it.safety_result==='rejected') return 1;
+  return {recorded:1,safety:2,inprogress:3,done:4}[it.status]||0;
+}
+function renderStepper(it){
+  const rej=it.safety_result==='rejected'; const ci=stepIndex(it);
+  return `<div class="stepper">`+STEPS.map((s,i)=>{
+    const n=i+1; let cls=''; if(rej&&i===1)cls='rej'; else if(n<ci)cls='done'; else if(n===ci)cls=(it.status==='done')?'done':'cur';
+    const ic = rej&&i===1?'✕':(n<=ci?(n<ci||it.status==='done'?'✓':n):n);
+    return `<div class="step ${cls}"><div class="dot">${ic}</div>${s}</div>`;
+  }).join('')+`</div>`;
+}
+function statusBadge(it){
+  if(it.safety_result==='rejected') return '<span class="badge b-red">ไม่อนุมัติ</span>';
+  if(it.status==='safety'&&it.safety_result==='approved') return '<span class="badge b-purple" style="background:var(--purple-bg);color:var(--purple);border-color:#DDD6FE">Safety อนุมัติ</span>';
+  const s=STATUS[it.status]||STATUS.recorded; return `<span class="badge ${s.cls}">${s.label}</span>`;
+}
+function renderList(){
+  const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['rejected','ไม่อนุมัติ']];
+  $('listChips').innerHTML=chips.map(([k,l])=>{
+    const n=k==='all'?state.items.length:state.items.filter(i=>stageOf(i)===k).length;
+    return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';renderList()">${l} (${n})</button>`;
+  }).join('');
+  const q=norm($('listSearch').value);
+  let arr=state.items.slice();
+  if(listFilter!=='all') arr=arr.filter(i=>stageOf(i)===listFilter);
+  if(q) arr=arr.filter(i=>norm(i.title+' '+i.machine+' '+i.reporter_name+' '+i.no).includes(q));
+  $('listBody').innerHTML = arr.length? arr.map(cardHtml).join('') :
+    `<div class="empty"><span class="ic">📭</span>ไม่มีรายการ</div>`;
+}
+function cardHtml(it){
+  const ph=(it.photos||[]).slice(0,4).map(p=>`<img src="${photoSrc(p)}" loading="lazy">`).join('');
+  return `<div class="item" onclick="openItem(${it.id})">
+    <div class="row" style="justify-content:space-between;gap:8px">
+      <div class="tt">${esc(it.title)}</div>${statusBadge(it)}
+    </div>
+    <div class="mt">
+      ${it.no?`<span>📄 ${esc(it.no)}</span>`:''}
+      <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
+      <span>🏷️ ${esc(it.category||'-')}</span>
+      ${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}
+      ${it.vsm?`<span>🏭 ${esc(it.vsm)}</span>`:''}
+    </div>
+    ${renderStepper(it)}
+    ${ph?`<div class="thumbs">${ph}</div>`:''}
+  </div>`;
+}
+
+/* ---------------- item detail + actions ---------------- */
+function openItem(id){
+  const it=state.items.find(x=>x.id==id); if(!it)return;
+  const before=(it.photos||[]).filter(p=>p.kind==='before');
+  const after=(it.photos||[]).filter(p=>p.kind==='after');
+  const canSafety = isSafety() && it.status==='recorded';
+  const canIssueNo = isAdmin() && it.status==='safety' && it.safety_result==='approved';
+  const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || isAdmin());
+  let actions='';
+  if(canSafety) actions+=`<button class="btn btn-green btn-block" onclick="safetyAct(${id},'approved')">✅ Safety อนุมัติ</button>
+    <button class="btn btn-red btn-block" style="margin-top:8px" onclick="safetyAct(${id},'rejected')">❌ ไม่อนุมัติ</button>`;
+  if(canIssueNo){
+    const gate=hasIssuance(it.vsm,it.year);
+    actions+= gate
+      ? `<div class="note">หน่วยงาน ${esc(it.vsm)} เปิดให้ดำเนินการแล้ว — ใส่เลข No.PSIF เพื่อเริ่ม</div>
+         <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-orange" onclick="issueNo(${id})">เริ่มดำเนินการ</button></div>`
+      : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
+  }
+  if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน (แนบรูปหลังแก้ไข)</button>`;
+  if(isAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
+
+  openModal('รายละเอียด PSIF', `
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">${statusBadge(it)}<span class="sub">${esc(it.created_at||'')}</span></div>
+    ${renderStepper(it)}
+    <h3 style="margin:12px 0 6px">${esc(it.title)}</h3>
+    <div class="kv"><span class="k">No.PSIF</span><span>${esc(it.no||'—')}</span></div>
+    <div class="kv"><span class="k">ผู้รายงาน</span><span>${esc(it.reporter_name||'')} (${esc(it.reporter_id)})</span></div>
+    <div class="kv"><span class="k">หน่วยงาน</span><span>${esc(it.vsm||'-')}</span></div>
+    <div class="kv"><span class="k">ประเภท</span><span>${esc(it.category||'-')}</span></div>
+    <div class="kv"><span class="k">พื้นที่</span><span>${esc(it.area_id||'-')}</span></div>
+    <div class="kv"><span class="k">เครื่องจักร</span><span>${esc(it.machine||'-')}</span></div>
+    ${it.detail?`<div class="kv"><span class="k">รายละเอียด</span><span>${esc(it.detail)}</span></div>`:''}
+    ${it.suggestion?`<div class="kv"><span class="k">ข้อเสนอแนะ</span><span>${esc(it.suggestion)}</span></div>`:''}
+    ${it.safety_note?`<div class="kv"><span class="k">หมายเหตุ Safety</span><span>${esc(it.safety_note)}</span></div>`:''}
+    ${it.done_detail?`<div class="kv"><span class="k">สรุปการแก้ไข</span><span>${esc(it.done_detail)}</span></div>`:''}
+    <h4 style="margin:14px 0 4px">📷 รูปก่อนแก้ไข</h4>
+    ${before.length?before.map(p=>`<img class="photo-full" src="${photoSrc(p)}">`).join(''):'<div class="sub">— ไม่มี —</div>'}
+    ${after.length?`<h4 style="margin:14px 0 4px">✅ รูปหลังแก้ไข</h4>`+after.map(p=>`<img class="photo-full" src="${photoSrc(p)}">`).join(''):''}
+    <div style="margin-top:16px">${actions}</div>
+  `);
+}
+async function safetyAct(id,result){
+  const note = result==='rejected' ? (prompt('เหตุผลที่ไม่อนุมัติ:')||'') : (prompt('หมายเหตุ (ถ้ามี):')||'');
+  if(result==='rejected' && note===null) return;
+  await patchPsif(id,{status:'safety',safety_result:result,safety_note:note,safety_by:CURRENT_USER.id,safety_at:new Date().toISOString().slice(0,19).replace('T',' ')});
+  toast(result==='approved'?'อนุมัติแล้ว':'ไม่อนุมัติ', result==='approved'?'green':'red');
+  closeModal(); refreshAll();
+}
+async function issueNo(id){
+  const no=$('noInput_'+id).value.trim(); if(!no){toast('กรอกเลข No.PSIF','red');return;}
+  await patchPsif(id,{no,status:'inprogress'});
+  toast('เริ่มดำเนินการแล้ว','green'); closeModal(); refreshAll();
+}
+let closingId=null, closePhoto=null;
+function openClose(id){
+  closingId=id; closePhoto=null;
+  openModal('🏁 ปิดงาน', `
+    <label class="fl">สรุปการแก้ไข</label>
+    <textarea class="inp" id="closeDetail" placeholder="อธิบายสิ่งที่แก้ไข"></textarea>
+    <label class="fl">รูปหลังแก้ไข <span class="req">* (บังคับ)</span></label>
+    <div class="dropzone" id="closeZone" onclick="document.getElementById('closePhotoInput').click()">📷 แตะเพื่อถ่าย/เลือกรูป</div>
+    <input type="file" id="closePhotoInput" accept="image/*" capture="environment" class="hidden" onchange="onClosePhoto(this)">
+    <button class="btn btn-green btn-block" style="margin-top:14px" onclick="doClose()">ยืนยันปิดงาน</button>`);
+}
+async function onClosePhoto(input){
+  const f=input.files[0]; if(!f)return;
+  const {dataURL}=await resizeImage(f); closePhoto=f;
+  const z=$('closeZone'); z.classList.add('has'); z.innerHTML=`<img src="${dataURL}" style="max-height:150px;border-radius:8px">`;
+}
+async function doClose(){
+  if(!closePhoto){toast('ต้องแนบรูปหลังแก้ไข','red');return;}
+  try{
+    const photo=await uploadPhoto(closePhoto,'after',closingId);
+    await patchPsif(closingId,{status:'done',done_by:CURRENT_USER.id,done_at:new Date().toISOString().slice(0,19).replace('T',' '),done_detail:$('closeDetail').value.trim()},[photo]);
+    toast('✅ ปิดงานเรียบร้อย','green'); closeModal(); refreshAll();
+  }catch(e){ toast('ปิดงานไม่สำเร็จ: '+e.message,'red'); }
+}
+async function delItem(id){ await deletePsif(id); toast('ลบแล้ว'); closeModal(); refreshAll(); }
+
+/* ====================================================================
+ *  SAFETY pane
+ * ==================================================================== */
+let safetyFilter='recorded';
+function renderSafety(){
+  $('safetyNote').innerHTML = isSafety()
+    ? 'ตรวจสอบเนื้อหา + ความซ้ำซ้อนก่อนอนุมัติ ระบบจะเตือนหากพบเรื่อง/เครื่องจักรที่คล้ายกัน'
+    : '⚠️ เฉพาะเจ้าหน้าที่ Safety/Admin จึงจะอนุมัติได้ (คุณดูได้อย่างเดียว)';
+  const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['rejected','ไม่อนุมัติ']];
+  $('safetyChips').innerHTML=chips.map(([k,l])=>{
+    const n=k==='recorded'?state.items.filter(i=>i.status==='recorded').length:state.items.filter(i=>i.safety_result===k).length;
+    return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';renderSafety()">${l} (${n})</button>`;
+  }).join('');
+  let arr = safetyFilter==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>i.safety_result===safetyFilter);
+  $('safetyBody').innerHTML = arr.length? arr.map(cardHtml).join('') : `<div class="empty"><span class="ic">✅</span>ไม่มีรายการ</div>`;
+}
+
+/* ====================================================================
+ *  REPORTS
+ * ==================================================================== */
+let repTab='person';
+function repYearVal(){ return +($('repYear').value||yr()); }
+function targetFor(y){ const t=state.targets.find(x=>x.year==y); return t?t.per_person_target:6; }
+function renderReport(){
+  $('repChips').innerHTML=[['person','รายคน'],['overview','ภาพรวม']].map(([k,l])=>
+    `<button class="chip ${repTab===k?'on':''}" onclick="repTab='${k}';renderReport()">${l}</button>`).join('');
+  repTab==='person'?renderRepPerson():renderRepOverview();
+}
+function computePerson(y){
+  const target=targetFor(y);
+  const map={};
+  state.employees.filter(e=>e.active!==0).forEach(e=>map[e.id]={id:e.id,name:e.name,vsm:e.vsm,submitted:0,done:0,approved:0,rejected:0});
+  state.items.filter(i=>i.year==y).forEach(r=>{
+    const m=map[r.reporter_id]||(map[r.reporter_id]={id:r.reporter_id,name:r.reporter_name||r.reporter_id,vsm:r.vsm||'',submitted:0,done:0,approved:0,rejected:0});
+    m.submitted++; if(r.status==='done')m.done++; if(r.safety_result==='approved')m.approved++; if(r.safety_result==='rejected')m.rejected++;
+  });
+  return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=BONUS(m.done);return m;}).sort((a,b)=>b.done-a.done||b.submitted-a.submitted)};
+}
+function renderRepPerson(){
+  const y=repYearVal(); const {target,people}=computePerson(y);
+  const rows=people.map(p=>`<tr onclick="personDetail('${esc(p.id)}',${y})" style="cursor:pointer">
+    <td>${esc(p.name)}<div class="sub">${esc(p.id)}${p.vsm?' · '+esc(p.vsm):''}</div></td>
+    <td class="num">${p.submitted}</td><td class="num" style="color:var(--green)">${p.done}</td>
+    <td class="num">${p.approved}</td><td class="num" style="color:var(--red)">${p.rejected}</td>
+    <td class="num" style="color:var(--orange)">${p.missing}</td>
+    <td class="num"><b>${p.bonus?p.bonus+'%':'-'}</b></td></tr>`).join('');
+  $('repBody').innerHTML=`
+    <div class="card"><div class="sub">เป้าหมาย ${target} เรื่อง/คน/ปี · โบนัส: 4=5% · 5=7.5% · 6+=10% · แตะชื่อเพื่อดูรายเรื่อง</div></div>
+    <div class="card scroll-x"><table class="tbl">
+      <tr><th>พนักงาน</th><th class="num">ส่ง</th><th class="num">จบ</th><th class="num">อนุมัติ</th><th class="num">ไม่อนุมัติ</th><th class="num">ขาด</th><th class="num">โบนัส</th></tr>
+      ${rows||'<tr><td colspan="7" class="empty">ไม่มีข้อมูล</td></tr>'}
+    </table></div>
+    <button class="btn btn-line btn-block" onclick="exportPersonCSV(${y})">⬇️ ส่งออก CSV</button>`;
+}
+function personDetail(id,y){
+  const items=state.items.filter(i=>i.reporter_id===id&&i.year==y);
+  const emp=state.employees.find(e=>e.id===id);
+  openModal('รายงาน: '+esc(emp?emp.name:id), items.length?items.map(it=>`
+    <div class="item" onclick="closeModal();openItem(${it.id})">
+      <div class="row" style="justify-content:space-between"><div class="tt">${esc(it.title)}</div>${statusBadge(it)}</div>
+      <div class="mt"><span>🏷️ ${esc(it.category||'-')}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}</div>
+      ${(it.photos||[]).length?`<div class="thumbs">${it.photos.map(p=>`<img src="${photoSrc(p)}">`).join('')}</div>`:''}
+    </div>`).join(''):'<div class="empty">ยังไม่มีเรื่อง</div>');
+}
+function renderRepOverview(){
+  const y=repYearVal(); const items=state.items.filter(i=>i.year==y);
+  const total=items.length, done=items.filter(i=>i.status==='done').length;
+  const byVsm={}, byCat={};
+  items.forEach(i=>{ (byVsm[i.vsm||'-']??={t:0,d:0}); byVsm[i.vsm||'-'].t++; if(i.status==='done')byVsm[i.vsm||'-'].d++;
+    (byCat[i.category||'-']??={t:0,d:0}); byCat[i.category||'-'].t++; if(i.status==='done')byCat[i.category||'-'].d++; });
+  const max=Math.max(1,...Object.values(byVsm).map(v=>v.t));
+  const maxC=Math.max(1,...Object.values(byCat).map(v=>v.t));
+  $('repBody').innerHTML=`
+    <div class="grid g3" style="margin-bottom:12px">
+      <div class="stat blue"><div class="n">${total}</div><div class="l">ทั้งหมด</div></div>
+      <div class="stat green"><div class="n">${done}</div><div class="l">เสร็จ</div></div>
+      <div class="stat orange"><div class="n">${total?Math.round(done/total*100):0}%</div><div class="l">% สำเร็จ</div></div>
+    </div>
+    <div class="card"><h3>🏭 แยกตามหน่วยงาน</h3>
+      ${Object.entries(byVsm).sort((a,b)=>b[1].t-a[1].t).map(([k,v])=>barRow(k,v.t,max,`${v.d}/${v.t}`)).join('')||'<div class="sub">ไม่มีข้อมูล</div>'}
+    </div>
+    <div class="card"><h3>🏷️ แยกตามประเภท</h3>
+      ${Object.entries(byCat).sort((a,b)=>b[1].t-a[1].t).map(([k,v])=>barRow(k,v.t,maxC,`${v.d}/${v.t}`)).join('')||'<div class="sub">ไม่มีข้อมูล</div>'}
+    </div>
+    <button class="btn btn-line btn-block" onclick="exportAllCSV(${y})">⬇️ ส่งออกข้อมูลทั้งหมด CSV</button>`;
+}
+function barRow(label,val,max,suffix){
+  return `<div class="bar-row"><span class="lab" title="${esc(label)}">${esc(label)}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:${Math.round(val/max*100)}%"></span></span>
+    <span class="val">${suffix||val}</span></div>`;
+}
+
+/* ====================================================================
+ *  DASHBOARD
+ * ==================================================================== */
+function toggleDashView(){
+  if(!dashWide){
+    openModal('🖥️ มุมมองคอมพิวเตอร์', `
+      <div class="warn">มุมมองนี้ออกแบบสำหรับจอคอมพิวเตอร์ — บนมือถือข้อมูลอาจแสดงไม่ครบหรือต้องเลื่อนแนวนอน</div>
+      <div class="row"><button class="btn btn-line btn-block" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-blue btn-block" onclick="closeModal();dashWide=true;LS.set('psif_dashwide',true);applyDashWidth();renderDash();">เปิดมุมมองคอมพิวเตอร์</button></div>`);
+  } else { dashWide=false; LS.set('psif_dashwide',false); applyDashWidth(); renderDash(); }
+}
+function applyDashWidth(){ $('homeWrap').classList.toggle('wide',dashWide); $('viewToggle').textContent=dashWide?'📱 มือถือ':'🖥️ คอมพิวเตอร์'; }
+function renderDash(){
+  applyDashWidth();
+  const y=+($('dashYear').value||yr());
+  const items=state.items.filter(i=>i.year==y);
+  const c={recorded:0,safety:0,inprogress:0,done:0,rejected:0};
+  items.forEach(i=>{ const s=stageOf(i); c[s]=(c[s]||0)+1; });
+  const total=items.length;
+  const {target,people}=computePerson(y);
+  const achievers=people.filter(p=>p.done>=target).length;
+  const bonusCount=people.filter(p=>p.bonus>0).length;
+  const top=people.filter(p=>p.submitted>0).slice(0,dashWide?12:5);
+  const recent=items.slice(0,dashWide?10:4);
+  const maxTop=Math.max(1,...top.map(p=>p.submitted));
+
+  const tiles=`<div class="grid ${dashWide?'g4':'g2'}" style="margin-bottom:12px">
+    <div class="stat blue"><div class="n">${total}</div><div class="l">📋 ทั้งหมด</div></div>
+    <div class="stat green"><div class="n">${c.done||0}</div><div class="l">✅ เสร็จ</div></div>
+    <div class="stat orange"><div class="n">${c.inprogress||0}</div><div class="l">⚙️ กำลังทำ</div></div>
+    <div class="stat"><div class="n">${c.recorded||0}</div><div class="l">🕓 รอ Safety</div></div>
+    ${dashWide?`<div class="stat red"><div class="n">${c.rejected||0}</div><div class="l">❌ ไม่อนุมัติ</div></div>
+    <div class="stat"><div class="n">${total?Math.round((c.done||0)/total*100):0}%</div><div class="l">% สำเร็จ</div></div>
+    <div class="stat green"><div class="n">${achievers}</div><div class="l">🎯 ถึงเป้า (${target})</div></div>
+    <div class="stat orange"><div class="n">${bonusCount}</div><div class="l">💰 ได้โบนัส</div></div>`:''}
+  </div>`;
+
+  const statusBar=`<div class="card"><h3>📊 สถานะงาน</h3>
+    ${[['recorded','รอ Safety'],['safety','Safety แล้ว'],['inprogress','กำลังทำ'],['done','เสร็จ'],['rejected','ไม่อนุมัติ']]
+      .map(([k,l])=>barRow(l,c[k]||0,Math.max(1,total),String(c[k]||0))).join('')}</div>`;
+
+  const topCard=`<div class="card"><h3>🏆 ผู้ส่งสูงสุด</h3>
+    ${top.length?top.map(p=>barRow(p.name,p.submitted,maxTop,`${p.done}/${p.submitted}`)).join(''):'<div class="sub">ยังไม่มีข้อมูล</div>'}</div>`;
+
+  const recentCard=`<div class="card"><h3>🆕 ล่าสุด</h3>
+    ${recent.length?recent.map(it=>`<div class="item" style="margin-bottom:8px" onclick="openItem(${it.id})">
+        <div class="row" style="justify-content:space-between"><div class="tt">${esc(it.title)}</div>${statusBadge(it)}</div>
+        <div class="mt"><span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}</div>
+      </div>`).join(''):'<div class="sub">ยังไม่มีรายการ</div>'}</div>`;
+
+  $('dashBody').innerHTML = tiles + (dashWide
+    ? `<div class="grid g2">${statusBar}${topCard}</div>${recentCard}`
+    : statusBar+topCard+recentCard);
+}
+
+/* ====================================================================
+ *  SETTINGS / ADMIN
+ * ==================================================================== */
+function renderSettings(){
+  $('apiUrl').value=API;
+  if(!isAdmin()){
+    $('adminArea').innerHTML=`<div class="card"><h3>🔐 ส่วนผู้ดูแลระบบ</h3>
+      <div class="sub" style="margin-bottom:8px">จัดการพนักงาน พื้นที่ ประเภท เป้าหมาย และเปิดดำเนินการ</div>
+      <button class="btn btn-blue btn-sm" onclick="if(requireAdmin())renderSettings()">🔓 ปลดล็อก Admin</button></div>`;
+    return;
+  }
+  const y=yr();
+  const vsms=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))];
+  $('adminArea').innerHTML=`
+    <div class="card"><h3>🚦 เปิดดำเนินการ (ออกเลข No.PSIF) — ข้อ 6</h3>
+      <div class="sub" style="margin-bottom:8px">เปิดให้แต่ละหน่วยงานเริ่มใส่เลข No.PSIF & ดำเนินการ (ปี ${y})</div>
+      <div class="row" style="flex-wrap:wrap;gap:8px">
+        <select class="inp" id="issVsm" style="flex:1">${vsms.map(v=>`<option>${esc(v)}</option>`).join('')||'<option>VSM4</option>'}</select>
+        <button class="btn btn-orange btn-sm" onclick="doIssue()">เปิดดำเนินการ</button>
+      </div>
+      <div class="sub" style="margin-top:8px">เปิดแล้ว: ${state.issuances.filter(i=>i.year==y).map(i=>esc(i.vsm)).join(', ')||'—'}</div>
+    </div>
+    <div class="card"><h3>🎯 เป้าหมาย/คน/ปี — ข้อ 12</h3>
+      <div class="row"><select class="inp" id="tgtYear" style="width:auto">${[y,y+1].map(yy=>`<option>${yy}</option>`).join('')}</select>
+      <input class="inp" id="tgtN" type="number" value="${targetFor(y)}" style="width:90px">
+      <button class="btn btn-blue btn-sm" onclick="saveTarget()">บันทึก</button></div>
+    </div>
+    <div class="card"><h3>👥 พนักงาน (${state.employees.length})</h3>
+      <button class="btn btn-blue btn-sm" onclick="editEmp()">➕ เพิ่ม/แก้ไข</button>
+      <div class="scroll-x" style="margin-top:8px;max-height:240px;overflow-y:auto"><table class="tbl">
+        <tr><th>รหัส</th><th>ชื่อ</th><th>หน่วยงาน</th><th>สิทธิ์</th><th></th></tr>
+        ${state.employees.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(e.role||'user')}</td>
+          <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`).join('')}
+      </table></div>
+    </div>
+    <div class="card"><h3>📍 พื้นที่/เครื่องจักร (${state.areas.length})</h3>
+      <button class="btn btn-blue btn-sm" onclick="editArea()">➕ เพิ่ม</button>
+      <div style="margin-top:8px">${state.areas.map(a=>`<div class="kv"><span class="k">${esc(a.vsm||'')}</span><span style="flex:1">${esc(a.name)}</span>
+        <button class="btn btn-line btn-sm" onclick="editArea('${esc(a.id)}')">✏️</button>
+        <button class="btn btn-line btn-sm" style="color:var(--red)" onclick="delMaster('areas','${esc(a.id)}').then(renderSettings)">🗑️</button></div>`).join('')}</div>
+    </div>
+    <div class="card"><h3>🏷️ ประเภท PSIF (${state.categories.length})</h3>
+      <button class="btn btn-blue btn-sm" onclick="editCat()">➕ เพิ่ม</button>
+      <div style="margin-top:8px">${state.categories.map(c=>`<div class="kv"><span style="flex:1">${esc(c.name)}</span>
+        <button class="btn btn-line btn-sm" style="color:var(--red)" onclick="delMaster('categories','${esc(c.id)}').then(renderSettings)">🗑️</button></div>`).join('')}</div>
+    </div>`;
+}
+async function doIssue(){ const v=$('issVsm').value; await addIssuance(v,yr()); toast('เปิดดำเนินการ '+v,'green'); renderSettings(); }
+async function saveTarget(){ await setTarget(+$('tgtYear').value,+$('tgtN').value||6); toast('บันทึกเป้าหมายแล้ว','green'); }
+function editEmp(id){
+  const e=id?state.employees.find(x=>x.id===id):{id:'',name:'',vsm:'',role:'user'};
+  openModal(id?'แก้ไขพนักงาน':'เพิ่มพนักงาน',`
+    <label class="fl">รหัสพนักงาน</label><input class="inp" id="eId" value="${esc(e.id)}" ${id?'readonly style="background:var(--blue-light)"':''}>
+    <label class="fl">ชื่อ-สกุล</label><input class="inp" id="eName" value="${esc(e.name)}">
+    <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="eVsm" value="${esc(e.vsm||'')}">
+    <label class="fl">สิทธิ์</label><select class="inp" id="eRole">
+      ${['user','safety','admin'].map(r=>`<option ${e.role===r?'selected':''}>${r}</option>`).join('')}</select>
+    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>`);
+}
+async function saveEmp(){
+  const id=$('eId').value.trim().toUpperCase(); if(!id||!$('eName').value.trim()){toast('กรอกรหัสและชื่อ','red');return;}
+  await upsertMaster('employees',{id,name:$('eName').value.trim(),vsm:$('eVsm').value.trim(),role:$('eRole').value,active:1});
+  toast('บันทึกแล้ว','green'); closeModal(); renderSettings();
+}
+function editArea(id){
+  const a=id?state.areas.find(x=>x.id===id):{id:'',name:'',vsm:''};
+  openModal(id?'แก้ไขพื้นที่':'เพิ่มพื้นที่',`
+    <label class="fl">รหัส (เช่น vsm4_zone1)</label><input class="inp" id="aId" value="${esc(a.id)}" ${id?'readonly style="background:var(--blue-light)"':''}>
+    <label class="fl">ชื่อพื้นที่/เครื่องจักร</label><input class="inp" id="aName" value="${esc(a.name)}">
+    <label class="fl">หน่วยงาน</label><input class="inp" id="aVsm" value="${esc(a.vsm||'')}">
+    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveArea()">บันทึก</button>`);
+}
+async function saveArea(){
+  let id=$('aId').value.trim()||('area_'+Date.now()); if(!$('aName').value.trim()){toast('กรอกชื่อ','red');return;}
+  await upsertMaster('areas',{id,name:$('aName').value.trim(),vsm:$('aVsm').value.trim(),active:1});
+  toast('บันทึกแล้ว','green'); closeModal(); renderSettings();
+}
+function editCat(){
+  openModal('เพิ่มประเภท',`<label class="fl">ชื่อประเภท</label><input class="inp" id="catName">
+    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveCat()">บันทึก</button>`);
+}
+async function saveCat(){
+  const n=$('catName').value.trim(); if(!n){toast('กรอกชื่อ','red');return;}
+  await upsertMaster('categories',{id:'cat_'+Date.now(),name:n,active:1});
+  toast('เพิ่มแล้ว','green'); closeModal(); renderSettings();
+}
+
+/* ---------------- API settings ---------------- */
+function saveApi(){
+  API=$('apiUrl').value.trim().replace(/\/+$/,''); LS.set('psif_api',API);
+  toast('บันทึก API แล้ว — กำลังโหลด...','green');
+  bootstrap().then(()=>{fillStaticUI();refreshAll();$('apiStatus').textContent='✅ เชื่อมต่อแล้ว';})
+    .catch(e=>{$('apiStatus').textContent='❌ '+e.message;toast('เชื่อมต่อไม่ได้','red');});
+}
+async function testApi(){
+  const u=$('apiUrl').value.trim().replace(/\/+$/,''); if(!u){$('apiStatus').textContent='ใส่ URL ก่อน';return;}
+  try{ const r=await fetch(u+'/health'); const d=await r.json(); $('apiStatus').textContent=d.ok?('✅ ออนไลน์ '+(d.time||'')):'❌ ไม่ตอบสนอง'; }
+  catch(e){ $('apiStatus').textContent='❌ '+e.message; }
+}
+
+/* ---------------- CSV export (req #14) ---------------- */
+function dl(name,content){ const b=new Blob(['﻿'+content],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download=name; a.click(); }
+function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function exportAllCSV(y){
+  const head=['id','no','status','safety_result','reporter_id','reporter_name','vsm','category','machine','title','created_at','done_at'];
+  const rows=state.items.filter(i=>i.year==y).map(i=>head.map(h=>csvCell(i[h])).join(','));
+  dl(`PSIF_${y}.csv`,[head.join(','),...rows].join('\n')); toast('ส่งออกแล้ว','green');
+}
+function exportPersonCSV(y){
+  const {people}=computePerson(y);
+  const head=['id','name','vsm','submitted','done','approved','rejected','missing','bonus%'];
+  const rows=people.map(p=>[p.id,p.name,p.vsm,p.submitted,p.done,p.approved,p.rejected,p.missing,p.bonus].map(csvCell).join(','));
+  dl(`PSIF_person_${y}.csv`,[head.join(','),...rows].join('\n')); toast('ส่งออกแล้ว','green');
+}
+
+/* ---------------- shared refresh ---------------- */
+function refreshAll(){ const active=document.querySelector('.pane.active'); fillStaticUI();
+  renderDash(); if(active){const id=active.id.replace('pane-','');
+    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='report')renderReport(); if(id==='settings')renderSettings();} }
+
+/* ---------------- modal ---------------- */
+function openModal(t,h){ $('modalTt').textContent=t; $('modalBd').innerHTML=h; $('modalBg').classList.add('open'); }
+function closeModal(){ $('modalBg').classList.remove('open'); }
+
+/* ====================================================================
+ *  DEFAULT (demo / first-run) DATA — mirrors schema.sql seed
+ * ==================================================================== */
+const DEFAULT_CATS=[
+  {id:'unsafe_act',name:'การกระทำที่ไม่ปลอดภัย (Unsafe Act)',active:1},
+  {id:'unsafe_cond',name:'สภาพที่ไม่ปลอดภัย (Unsafe Condition)',active:1},
+  {id:'near_miss',name:'เกือบเกิดอุบัติเหตุ (Near Miss)',active:1},
+  {id:'improve',name:'ข้อเสนอแนะ/ปรับปรุง (Improvement)',active:1},
+  {id:'5s',name:'5ส / ความเป็นระเบียบ',active:1},
+  {id:'env',name:'สิ่งแวดล้อม (Environment)',active:1},
+];
+const DEFAULT_AREAS=[
+  {id:'vsm4_zone1',name:'VSM4 - Zone 1',vsm:'VSM4',active:1},
+  {id:'vsm4_zone2',name:'VSM4 - Zone 2',vsm:'VSM4',active:1},
+  {id:'vsm4_zone3',name:'VSM4 - Zone 3',vsm:'VSM4',active:1},
+  {id:'warehouse',name:'คลังสินค้า / Warehouse',vsm:'Logistics',active:1},
+  {id:'office',name:'สำนักงาน / Office',vsm:'Office',active:1},
+  {id:'common',name:'พื้นที่ส่วนกลาง',vsm:'Common',active:1},
+];
+const DEFAULT_EMP=[
+  {id:'G-260',name:'น.ส.เพชรลดา พรมมา',vsm:'VSM4',role:'admin',active:1},
+  {id:'L-1827',name:'นายสุทิศ ภูถมดี',vsm:'VSM4',role:'user',active:1},
+  {id:'L-2101',name:'นายนพรัตน์ พวงพันธ์',vsm:'VSM4',role:'user',active:1},
+  {id:'L-3501',name:'นายสุภัค โจนรัมย์',vsm:'VSM4',role:'user',active:1},
+  {id:'PST742',name:'นางสาวจีรนันท์ ลดาพัน',vsm:'VSM4',role:'safety',active:1},
+  {id:'L-603',name:'นายรุ่งโรจน์ วรรณสุทธะ',vsm:'VSM4',role:'user',active:1},
+  {id:'L-1101',name:'นายเดชา คำพิมูล',vsm:'VSM4',role:'user',active:1},
+  {id:'PST802',name:'นายวรรณชัย โพธิ์หล้า',vsm:'VSM4',role:'user',active:1},
+  {id:'S-067',name:'นายจำเนียร ทาเทพ',vsm:'VSM4',role:'user',active:1},
+  {id:'L-3582',name:'นายกิตติภพ บัวองค์',vsm:'VSM4',role:'user',active:1},
+];
+
+/* ---------------- start ---------------- */
+applyDashWidth();
+bootApp();
+</script>
+</body>
+</html>

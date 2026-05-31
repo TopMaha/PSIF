@@ -1,0 +1,7 @@
+# local preview helpers (not part of the app)
+.claude/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.log
