@@ -169,8 +169,16 @@ async function attachPhotos(env, rows) {
   const ph = (await env.DB.prepare(
     `SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (${ids.map(()=>'?').join(',')})`
   ).bind(...ids).all()).results;
+  // Optional: serve straight from an R2 public bucket / custom domain to take
+  // load off the Worker. Set the R2_PUBLIC_BASE var to enable (e.g.
+  // https://pub-xxxx.r2.dev  or  https://photos.yourdomain.com). If unset, the
+  // app falls back to streaming via this Worker's GET /photo/:key.
+  const base = env.R2_PUBLIC_BASE ? env.R2_PUBLIC_BASE.replace(/\/+$/, '') : '';
   const byId = {};
-  for (const p of ph) (byId[p.psif_id] ||= []).push({ id: p.id, kind: p.kind, key: p.r2_key });
+  for (const p of ph) (byId[p.psif_id] ||= []).push({
+    id: p.id, kind: p.kind, key: p.r2_key,
+    url: base ? base + '/' + p.r2_key : undefined,
+  });
   for (const r of rows) r.photos = byId[r.id] || [];
 }
 

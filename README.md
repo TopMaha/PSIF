@@ -64,6 +64,11 @@ database_id = "<<วาง database_id ที่ได้จากขั้น B
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "psif-photos"
+
+# (ไม่บังคับ) ถ้าเปิด Public access / Custom domain ให้ R2 แล้ว
+# ใส่ URL ฐานไว้ตรงนี้ เพื่อให้รูปโหลดตรงจาก R2 (ลดภาระ Worker)
+# [vars]
+# R2_PUBLIC_BASE = "https://pub-xxxxxxxx.r2.dev"
 ```
 
 ### D. Deploy
@@ -86,6 +91,19 @@ wrangler deploy
 แค่ไฟล์ static ไฟล์เดียว วางที่ไหนก็ได้:
 - **Cloudflare Pages / GitHub Pages / Netlify** — อัปโหลด `index.html`
 - หรือเปิดจากไฟล์ตรง ๆ ก็ได้ (ตั้งค่า API URL ในแอป)
+
+---
+
+## 📷 การเก็บรูปภาพ (ประหยัดพื้นที่)
+- **ไฟล์รูปจริงเก็บบน Cloudflare R2** — ฐานข้อมูล D1 เก็บแค่ "คีย์" (ข้อความสั้น เช่น
+  `psif/12/after-….jpg`) ไม่ได้เก็บไฟล์รูป → D1 เล็กมาก ไม่บวม
+- **ย่อรูปอัตโนมัติฝั่งผู้ใช้** ก่อนอัปโหลด (≤ 1280px, JPEG) ลดขนาดไฟล์/ค่าเก็บข้อมูล
+- **ลบรูปออกจาก R2 อัตโนมัติ** เมื่อ Admin ลบรายการ (`DELETE /psif`)
+- เสิร์ฟรูป 2 แบบ:
+  1. ผ่าน Worker `GET /photo/:key` (ค่าเริ่มต้น — ใช้ได้เลย, รูปเป็นส่วนตัว)
+  2. ตรงจาก R2 public/custom domain — ตั้ง `R2_PUBLIC_BASE` (ดูขั้น C) เพื่อลดภาระ/ค่า request ของ Worker
+- โหมดทดลอง (ยังไม่ตั้งค่า API): รูปเก็บแบบ base64 ในเครื่อง (localStorage) ชั่วคราวเท่านั้น —
+  พอเชื่อม API/deploy Worker แล้ว รูปจะไปอยู่บน R2 ทันที
 
 ---
 

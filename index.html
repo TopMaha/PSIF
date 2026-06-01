@@ -576,7 +576,11 @@ async function uploadPhoto(file,kind,psifId){
   const fd=new FormData(); fd.append('file',blob,'photo.jpg'); fd.append('kind',kind); fd.append('psif_id',psifId||'tmp');
   const d=await api('/photo',{form:fd}); return {kind,key:d.key};
 }
-function photoSrc(p){ return (p.key||'').startsWith('data:') ? p.key : API.replace(/\/+$/,'')+'/photo/'+encodeURIComponent(p.key); }
+function photoSrc(p){
+  if(p.url) return p.url;                                   // direct from R2 public base (set R2_PUBLIC_BASE)
+  if((p.key||'').startsWith('data:')) return p.key;          // demo mode (local base64)
+  return API.replace(/\/+$/,'')+'/photo/'+encodeURIComponent(p.key); // stream via Worker
+}
 
 /* ====================================================================
  *  LOGIN
