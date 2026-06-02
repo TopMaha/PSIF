@@ -459,7 +459,7 @@ async function api(path,opts={}){
   busy(true);
   try{
     const res = await fetch(url,{
-      method: opts.method || (opts.body?'POST':'GET'),
+      method: opts.method || ((opts.body||opts.form)?'POST':'GET'),
       headers: opts.form?undefined:{'Content-Type':'application/json'},
       body: opts.form?opts.form:(opts.body?JSON.stringify(opts.body):undefined),
     });
