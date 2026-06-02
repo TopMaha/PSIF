@@ -1,0 +1,18 @@
+name = "psif-api"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+account_id = "83edbaa0b88597054144fcceb27b7e8d"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "psif-db"
+database_id = "229e5d1b-4f23-4ee9-985c-9600bed06d4d"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "psif-photos"
+
+# (optional) serve photos straight from an R2 public bucket / custom domain
+# to take load off the Worker. Uncomment and set after enabling R2 public access.
+# [vars]
+# R2_PUBLIC_BASE = "https://pub-xxxxxxxx.r2.dev"

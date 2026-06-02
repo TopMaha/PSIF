@@ -116,7 +116,8 @@ async function psifRoute(env, request, seg) {
     // attach any photos already uploaded (req #2: before-photo)
     if (Array.isArray(b.photos)) {
       for (const p of b.photos) {
-        if (p && p.r2_key) await addPhoto(env, newId, p.kind || 'before', p.r2_key);
+        const k = p && (p.key || p.r2_key);
+        if (k && !k.startsWith('data:')) await addPhoto(env, newId, p.kind || 'before', k);
       }
     }
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(newId).first();
@@ -140,7 +141,8 @@ async function psifRoute(env, request, seg) {
     }
     if (Array.isArray(b.photos)) {
       for (const p of b.photos) {
-        if (p && p.r2_key) await addPhoto(env, id, p.kind || 'after', p.r2_key);
+        const k = p && (p.key || p.r2_key);
+        if (k && !k.startsWith('data:')) await addPhoto(env, id, p.kind || 'after', k);
       }
     }
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();

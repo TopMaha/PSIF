@@ -429,7 +429,8 @@ const LS = {
 };
 
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
-let API = LS.get('psif_api','');
+const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
+let API = LS.get('psif_api', DEFAULT_API);
 let CURRENT_USER = null;
 let adminUnlocked = false;
 
