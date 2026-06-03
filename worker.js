@@ -50,6 +50,7 @@ export default {
         case 'issuances': return await issuancesRoute(env, request, seg);
         case 'dupe':      return await dupeRoute(env, url);
         case 'report':    return await reportRoute(env, url, seg);
+        case 'import':    return await importRoute(env, request);
         default:          return err('not found: /' + head, 404);
       }
     } catch (e) {
@@ -57,6 +58,33 @@ export default {
     }
   },
 };
+
+/* ---------------- bulk import (Admin: paste legacy Excel data, no photos) ---------------- */
+async function importRoute(env, request) {
+  if (request.method !== 'POST') return err('method not allowed', 405);
+  const b = await request.json();
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  if (!rows.length) return err('no rows');
+  const now = nowISO();
+  let n = 0;
+  for (const r of rows) {
+    const title = (r.title || (r.detail || '').slice(0, 120) || '(นำเข้าข้อมูล)');
+    if (!(r.detail || r.title)) continue;
+    await env.DB.prepare(
+      `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
+         status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      r.no || '', r.reporter_id || '', r.reporter_name || '', r.vsm || '', '', r.machine || '', r.category || '',
+      title, r.detail || '', r.suggestion || '',
+      r.status || 'recorded', r.safety_result || 'pending', r.safety_note || '', r.safety_at || '',
+      r.done_detail || '', r.done_by || '', r.done_at || '',
+      +r.year || new Date().getFullYear(), r.created_at || now, now
+    ).run();
+    n++;
+  }
+  return ok({ imported: n });
+}
 
 /* ---------------- bootstrap (one round-trip on app load) ---------------- */
 async function bootstrap(env) {

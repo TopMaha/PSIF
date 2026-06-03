@@ -551,6 +551,14 @@ async function addIssuance(vsm,year){
 }
 function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
 
+async function importRows(rows){
+  if(online()){ const d=await api('/import',{body:{rows}}); await reloadItems(); return d.imported; }
+  // demo: insert locally with sequential ids
+  let maxId=Math.max(0,...state.items.map(i=>i.id)), n=0;
+  for(const r of rows){ state.items.unshift({id:++maxId, no:'', photos:[], updated_at:r.created_at||'', ...r}); n++; }
+  demoSave(); return n;
+}
+
 /* ---- duplicate search (keyword + machine), mirrors worker ---- */
 function norm(s){return (s||'').toLowerCase().trim().replace(/\s+/g,' ');}
 function toks(s){return new Set(norm(s).replace(/[^\p{L}\p{N} ]/gu,' ').split(/\s+/).filter(w=>w.length>=2));}
@@ -1023,6 +1031,17 @@ function renderSettings(){
   const y=yr();
   const vsms=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))];
   $('adminArea').innerHTML=`
+    <div class="card"><h3>📥 นำเข้าข้อมูลเดิมจาก Excel (เฉพาะ Admin)</h3>
+      <div class="sub" style="margin-bottom:8px">คัดลอกจาก Excel แล้ววางด้านล่าง — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
+      <div class="note" style="margin-bottom:8px">1) วันที่ลงข้อมูล · 2) ชื่อพนักงาน · 3) รายละเอียด · 4) คำแนะนำการแก้ไข · 5) Safety อนุมัติ(ข้อความ) · 6) การดำเนินการ(จบ/ยัง) · 7) วันที่ปิดจบ<br><span style="opacity:.8">วันที่: รับ 15/01/2567 (พ.ศ.) หรือ 2024-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked> ข้ามแถวแรก (หัวตาราง)</label>
+      <textarea class="inp" id="importBox" style="min-height:120px;font-family:monospace;font-size:12.5px" placeholder="วางข้อมูลจาก Excel ที่นี่..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-line btn-sm" onclick="previewImport()">🔎 ตรวจสอบ/พรีวิว</button>
+        <button class="btn btn-blue btn-sm" id="importBtn" onclick="doImport()" disabled>นำเข้า</button>
+      </div>
+      <div id="importPreview" style="margin-top:10px"></div>
+    </div>
     <div class="card"><h3>🚦 เปิดดำเนินการ (ออกเลข No.PSIF) — ข้อ 6</h3>
       <div class="sub" style="margin-bottom:8px">เปิดให้แต่ละหน่วยงานเริ่มใส่เลข No.PSIF & ดำเนินการ (ปี ${y})</div>
       <div class="row" style="flex-wrap:wrap;gap:8px">
@@ -1094,6 +1113,93 @@ async function saveCat(){
   const n=$('catName').value.trim(); if(!n){toast('กรอกชื่อ','red');return;}
   await upsertMaster('categories',{id:'cat_'+Date.now(),name:n,active:1});
   toast('เพิ่มแล้ว','green'); closeModal(); renderSettings();
+}
+
+/* ===================== IMPORT (Excel paste) — Admin only ===================== */
+function parseThaiDate(s){
+  s=(s||'').trim(); if(!s) return null;
+  let y,m,d,mm;
+  if(mm=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/)){ y=+mm[1];m=+mm[2];d=+mm[3]; }
+  else if(mm=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/)){ d=+mm[1];m=+mm[2];y=+mm[3]; if(y<100)y+=2000; }
+  else return null;
+  if(y>2400) y-=543;                 // Buddhist (พ.ศ.) -> Gregorian
+  if(m<1||m>12||d<1||d>31) return null;
+  return { iso:`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, year:y };
+}
+function mapSafety(s){ s=(s||'').toLowerCase().trim();
+  if(/ไม่|reject|ไม่ผ่าน|ไม่อนุมัติ|\bno\b/.test(s)) return 'rejected';
+  if(/อนุมัติ|ผ่าน|approve|\byes\b|\bok\b|ใช่/.test(s)) return 'approved';
+  return 'pending';
+}
+function mapDone(s){ s=(s||'').trim(); if(!s) return false;
+  if(/ยัง|ไม่|กำลัง|รอ|\bnot\b|pending/i.test(s)) return false;   // "ยังไม่จบ" must NOT count as done
+  return /จบ|เสร็จ|เรียบร้อย|ปิด|done|complete|finish/i.test(s);
+}
+function matchEmp(name){
+  name=(name||'').trim(); if(!name) return null;
+  const strip=s=>(s||'').replace(/^(นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*/,'').trim();
+  const n=strip(name);
+  return state.employees.find(e=>e.name===name)
+      || state.employees.find(e=>strip(e.name)===n)
+      || (n? state.employees.find(e=>strip(e.name).includes(n)||n.includes(strip(e.name))):null)
+      || null;
+}
+function buildImportRecord(cols){
+  const [dDate,name,detail,suggest,safetyTxt,doneTxt,doneDate]=cols.map(c=>(c||'').trim());
+  const cd=parseThaiDate(dDate), dd=parseThaiDate(doneDate);
+  const safety=mapSafety(safetyTxt);
+  const done=mapDone(doneTxt)||!!dd;
+  let status = done?'done' : safety==='approved'?'inprogress' : safety==='rejected'?'safety' : 'recorded';
+  const emp=matchEmp(name);
+  return {
+    reporter_id: emp?emp.id:(name||'-'), reporter_name: emp?emp.name:name, vsm: emp?(emp.vsm||''):'',
+    title: (detail||'').slice(0,120) || '(นำเข้าข้อมูล)', detail, suggestion:suggest, category:'',
+    status, safety_result:safety, safety_note:safetyTxt,
+    done_detail: done?'(นำเข้าข้อมูลเดิม)':'', done_at: dd?dd.iso:'',
+    created_at: cd?cd.iso+' 00:00:00':'', year: cd?cd.year:(dd?dd.year:yr()),
+    _matched:!!emp, _dateOk:!!cd, _name:name
+  };
+}
+function parseImportRows(){
+  let lines=($('importBox').value||'').split(/\r?\n/).filter(l=>l.trim());
+  if($('importHeader').checked) lines=lines.slice(1);
+  return lines.map(l=>buildImportRecord(l.split('\t')));
+}
+let _importRecs=[];
+function previewImport(){
+  _importRecs=parseImportRows();
+  const box=$('importPreview');
+  if(!_importRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — วางข้อมูลจาก Excel ก่อน (คั่นด้วย Tab)</div>'; $('importBtn').disabled=true; return; }
+  const unmatched=_importRecs.filter(r=>!r._matched).map(r=>r._name).filter(Boolean);
+  const badDate=_importRecs.filter(r=>!r._dateOk).length;
+  const done=_importRecs.filter(r=>r.status==='done').length;
+  const rows=_importRecs.slice(0,8).map(r=>`<tr>
+    <td>${esc(r.created_at?r.created_at.slice(0,10):'—')}</td>
+    <td>${esc(r.reporter_name||'-')}${r._matched?'':' <span class="badge b-orange" style="font-size:10px">ไม่พบรหัส</span>'}</td>
+    <td>${esc((r.detail||'').slice(0,40))}</td>
+    <td>${statusBadge(r)}</td>
+    <td>${esc(r.done_at||'—')}</td></tr>`).join('');
+  box.innerHTML=`
+    <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · เสร็จ ${done} · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
+    ${unmatched.length?`<div class="warn">⚠️ ไม่พบรหัสพนักงานสำหรับ: ${esc([...new Set(unmatched)].slice(0,10).join(', '))}${unmatched.length>10?' …':''}<br>(จะบันทึกโดยใช้ชื่อที่วางมาเป็นผู้รายงาน)</div>`:''}
+    ${badDate?`<div class="warn">⚠️ ${badDate} แถววันที่อ่านไม่ได้ — จะใช้ปี ${yr()} แทน (ตรวจรูปแบบวันที่)</div>`:''}
+    <div class="scroll-x"><table class="tbl">
+      <tr><th>วันที่ลง</th><th>พนักงาน</th><th>รายละเอียด</th><th>สถานะ</th><th>วันปิด</th></tr>${rows}
+    </table></div>
+    <div class="sub" style="margin-top:4px">${_importRecs.length>8?'(แสดง 8 แถวแรก)':''}</div>`;
+  $('importBtn').disabled=false; $('importBtn').textContent='นำเข้า '+_importRecs.length+' รายการ';
+}
+async function doImport(){
+  if(!_importRecs.length){ toast('กดตรวจสอบ/พรีวิวก่อน','orange'); return; }
+  if(!requireAdmin()) return;
+  if(!confirm('นำเข้า '+_importRecs.length+' รายการ?\n(ข้อมูลจะเพิ่มเข้าระบบจริง)')) return;
+  const clean=_importRecs.map(({_matched,_dateOk,_name,...r})=>r);
+  try{
+    const n=await importRows(clean);
+    toast('✅ นำเข้า '+n+' รายการแล้ว','green');
+    $('importBox').value=''; $('importPreview').innerHTML=''; _importRecs=[]; $('importBtn').disabled=true;
+    refreshAll();
+  }catch(e){ toast('นำเข้าไม่สำเร็จ: '+e.message,'red'); }
 }
 
 /* ---------------- API settings ---------------- */
