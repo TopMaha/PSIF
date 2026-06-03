@@ -18,6 +18,7 @@
   --red:#C81E1E; --red-bg:#FEF2F2; --red-bd:#FBC9C9;
   --purple:#6D28D9; --purple-bg:#F4F0FE;
   --amber:#F59E0B; /* hi-vis safety accent */
+  --tnc:#1B75BB;   /* TENNECO brand blue */
   --shadow:0 1px 2px rgba(11,42,107,.05),0 2px 8px rgba(11,42,107,.06);
   --shadow-lg:0 6px 16px rgba(11,42,107,.12),0 16px 40px rgba(11,42,107,.16);
   --ring:0 0 0 3px rgba(29,78,216,.18);
@@ -67,6 +68,16 @@ a{color:var(--blue)}
 .appbar .who{font-size:12px;opacity:.95;text-align:right;line-height:1.3;position:relative}
 .iconbtn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.12);color:#fff;width:38px;height:38px;border-radius:11px;font-size:17px;display:grid;place-items:center;position:relative;transition:.15s}
 .iconbtn:active{background:rgba(255,255,255,.32);transform:scale(.92)}
+
+/* ---------- brand: TENNECO wordmark ---------- */
+.brandrow{display:flex;align-items:center;gap:10px;position:relative}
+.tnc{font-family:var(--font-display),"Arial Narrow",sans-serif;font-weight:700;letter-spacing:.5px;display:inline-block;transform:skewX(-9deg);line-height:1;white-space:nowrap}
+.brandrow .tnc{color:#fff;font-size:18px;text-shadow:0 1px 2px rgba(0,0,0,.2)}
+.apptag{font-family:var(--font-display);font-weight:700;font-size:11.5px;letter-spacing:1.5px;color:#fff;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);padding:3px 8px;border-radius:8px;line-height:1}
+.brand-login{display:flex;justify-content:center;align-items:center;gap:8px;margin-bottom:14px}
+.brand-login .tnc{color:var(--tnc);font-size:28px}
+.brand-login::before,.brand-login::after{content:"";height:1px;flex:1;max-width:42px;background:linear-gradient(90deg,transparent,var(--border))}
+.brand-login::before{background:linear-gradient(90deg,var(--border),transparent)}
 
 /* ---------- layout ---------- */
 .wrap{max-width:760px;margin:0 auto;padding:14px}
@@ -273,6 +284,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
 <!-- ============ LOGIN ============ -->
 <div class="lockwrap" id="lock">
   <div class="lockcard">
+    <div class="brand-login"><span class="tnc">TENNECO</span></div>
     <div class="ic">🦺</div>
     <h1>PSIF</h1>
     <div class="lock-sub">ระบบบันทึก & ติดตามความปลอดภัย<br>กรอกรหัสพนักงานเพื่อเข้าใช้งาน</div>
@@ -286,7 +298,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
 <!-- ============ APP ============ -->
 <div id="app" class="hidden">
   <div class="appbar">
-    <div class="logo"><span class="mark">🦺</span><span>PSIF<small>SAFETY SYSTEM</small></span></div>
+    <div class="brandrow"><span class="tnc">TENNECO</span><span class="apptag">PSIF</span></div>
     <div class="sp"></div>
     <div class="who" id="who"></div>
     <button class="iconbtn" title="ตั้งค่า" onclick="setPane('settings')">⚙️</button>
