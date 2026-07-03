@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS psif_photos (
 );
 CREATE INDEX IF NOT EXISTS idx_photos_psif ON psif_photos(psif_id);
 
+-- ---------- notifications: alert the reporter when anyone acts on their record ----------
+CREATE TABLE IF NOT EXISTS notifications (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id TEXT NOT NULL,             -- who receives (the reporter)
+  psif_id     INTEGER,                   -- related PSIF record (may be deleted)
+  message     TEXT NOT NULL,
+  by_id       TEXT DEFAULT '',           -- who did the action
+  by_name     TEXT DEFAULT '',
+  is_read     INTEGER DEFAULT 0,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_notif_emp ON notifications(employee_id, is_read);
+
 -- ============================================================
 --  SEED DATA
 -- ============================================================
@@ -94,14 +107,11 @@ CREATE INDEX IF NOT EXISTS idx_photos_psif ON psif_photos(psif_id);
 INSERT OR IGNORE INTO targets (year, per_person_target) VALUES (2025, 6);
 INSERT OR IGNORE INTO targets (year, per_person_target) VALUES (2026, 6);
 
--- PSIF categories (req #7: "แบ่งเป็นประเภท")
+-- PSIF categories — fixed at exactly 3 types (PSIF / Near miss / Behavior)
 INSERT OR IGNORE INTO categories (id, name) VALUES
-  ('unsafe_act',  'การกระทำที่ไม่ปลอดภัย (Unsafe Act)'),
-  ('unsafe_cond', 'สภาพที่ไม่ปลอดภัย (Unsafe Condition)'),
-  ('near_miss',   'เกือบเกิดอุบัติเหตุ (Near Miss)'),
-  ('improve',     'ข้อเสนอแนะ/ปรับปรุง (Improvement)'),
-  ('5s',          '5ส / ความเป็นระเบียบ'),
-  ('env',         'สิ่งแวดล้อม (Environment)');
+  ('psif',      'PSIF'),
+  ('near_miss', 'Near miss'),
+  ('behavior',  'Behavior');
 
 -- areas / machines (sample — manage in the app's Settings)
 INSERT OR IGNORE INTO areas (id, name, vsm) VALUES

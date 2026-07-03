@@ -68,6 +68,7 @@ a{color:var(--blue)}
 .appbar .who{font-size:12px;opacity:.95;text-align:right;line-height:1.3;position:relative}
 .iconbtn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.12);color:#fff;width:38px;height:38px;border-radius:11px;font-size:17px;display:grid;place-items:center;position:relative;transition:.15s}
 .iconbtn:active{background:rgba(255,255,255,.32);transform:scale(.92)}
+.nbadge{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:999px;display:grid;place-items:center;padding:0 4px;border:2px solid var(--navy);line-height:1}
 
 /* ---------- brand: TENNECO wordmark ---------- */
 .brandrow{display:flex;align-items:center;gap:10px;position:relative}
@@ -301,6 +302,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
     <div class="brandrow"><span class="tnc">TENNECO</span><span class="apptag">PSIF</span></div>
     <div class="sp"></div>
     <div class="who" id="who"></div>
+    <button class="iconbtn" title="การแจ้งเตือน" onclick="openNotifs()">🔔<span id="notifBadge" class="nbadge hidden"></span></button>
     <button class="iconbtn" title="ตั้งค่า" onclick="setPane('settings')">⚙️</button>
     <button class="iconbtn" title="ออกจากระบบ" onclick="logout()">⏻</button>
   </div>
@@ -337,7 +339,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
         <label class="fl">ผู้รายงาน</label>
         <input class="inp" id="cReporter" readonly style="background:var(--blue-light)">
         <div class="grid g2">
-          <div><label class="fl">หน่วยงาน / VSM</label><input class="inp" id="cVsm" list="vsmList" placeholder="เช่น VSM4"></div>
+          <div><label class="fl">หน่วยงาน / VSM (อัตโนมัติ)</label><input class="inp" id="cVsm" readonly style="background:var(--blue-light)" placeholder="ระบบระบุจากรหัสพนักงาน"></div>
           <div><label class="fl">ประเภท <span class="req">*</span></label><select class="inp" id="cCat"></select></div>
         </div>
         <div class="grid g2">
@@ -447,8 +449,15 @@ let CURRENT_USER = null;
 let adminUnlocked = false;
 
 const state = {
-  employees: [], areas: [], categories: [], targets: [], issuances: [], items: [],
+  employees: [], areas: [], categories: [], targets: [], issuances: [], items: [], notifications: [],
 };
+
+/* ---- PSIF types: fixed at exactly 3 (per requirement) ---- */
+const FIXED_CATS = [
+  {id:'psif',      name:'PSIF',      active:1},
+  {id:'near_miss', name:'Near miss', active:1},
+  {id:'behavior',  name:'Behavior',  active:1},
+];
 
 const STATUS = {
   recorded:  {label:'บันทึกเข้าระบบ', cls:'b-blue'},
@@ -486,14 +495,15 @@ const online = () => !!API;
  *  STORE — unified facade (online via API, offline via localStorage)
  * ==================================================================== */
 const DEMO_KEY='psif_demo';
-function demoLoad(){ const d=LS.get(DEMO_KEY,null); if(d){ Object.assign(state,d); }
-  else { Object.assign(state,{employees:DEFAULT_EMP,areas:DEFAULT_AREAS,categories:DEFAULT_CATS,targets:[{year:yr(),per_person_target:6}],issuances:[],items:[]}); demoSave(); } }
-function demoSave(){ if(!online()) LS.set(DEMO_KEY,{employees:state.employees,areas:state.areas,categories:state.categories,targets:state.targets,issuances:state.issuances,items:state.items}); }
+function demoLoad(){ const d=LS.get(DEMO_KEY,null); if(d){ Object.assign(state,d); state.notifications=state.notifications||[]; }
+  else { Object.assign(state,{employees:DEFAULT_EMP,areas:DEFAULT_AREAS,categories:FIXED_CATS,targets:[{year:yr(),per_person_target:6}],issuances:[],items:[],notifications:[]}); demoSave(); }
+  state.categories=FIXED_CATS; }
+function demoSave(){ if(!online()) LS.set(DEMO_KEY,{employees:state.employees,areas:state.areas,categories:state.categories,targets:state.targets,issuances:state.issuances,items:state.items,notifications:state.notifications}); }
 
 async function bootstrap(){
   if(online()){
     const d = await api('/bootstrap');
-    state.employees=d.employees; state.areas=d.areas; state.categories=d.categories;
+    state.employees=d.employees; state.areas=d.areas; state.categories=FIXED_CATS;
     state.targets=d.targets; state.issuances=d.issuances;
     const r = await api('/psif'); state.items=r.items;
   } else {
@@ -517,18 +527,31 @@ async function createPsif(rec,photos){
   }
 }
 async function patchPsif(id,patch,photos){
+  const by={_by:CURRENT_USER?CURRENT_USER.id:'',_by_name:CURRENT_USER?CURRENT_USER.name:''};
   if(online()){
-    const d = await api('/psif/'+id,{method:'PATCH',body:{...patch,photos}});
+    const d = await api('/psif/'+id,{method:'PATCH',body:{...patch,...by,photos}});
     const i = state.items.findIndex(x=>x.id==id); if(i>=0) state.items[i]=d.item;
+    loadNotifs().catch(()=>{});
     return d.item;
   } else {
-    const it = state.items.find(x=>x.id==id); Object.assign(it,patch);
+    const it = state.items.find(x=>x.id==id);
+    const old = {...it};
+    Object.assign(it,patch);
     if(photos) it.photos=[...(it.photos||[]),...photos];
+    if(old.reporter_id && old.reporter_id!==by._by)
+      notifMessages(old,patch).forEach(m=>localNotify(old.reporter_id,id,m));
     demoSave(); return it;
   }
 }
 async function deletePsif(id){
-  if(online()) await api('/psif/'+id,{method:'DELETE'});
+  if(online()){
+    const q='?by='+encodeURIComponent(CURRENT_USER?CURRENT_USER.id:'')+'&by_name='+encodeURIComponent(CURRENT_USER?CURRENT_USER.name:'');
+    await api('/psif/'+id+q,{method:'DELETE'});
+  } else {
+    const it=state.items.find(x=>x.id==id);
+    if(it && it.reporter_id && it.reporter_id!==(CURRENT_USER&&CURRENT_USER.id))
+      localNotify(it.reporter_id,id,`🗑️ เรื่อง "${(it.title||'').slice(0,40)}" ถูกลบออกจากระบบ`);
+  }
   state.items = state.items.filter(x=>x.id!=id); demoSave();
 }
 async function upsertMaster(table,obj){
@@ -550,6 +573,60 @@ async function addIssuance(vsm,year){
   demoSave();
 }
 function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
+function empVsm(id){ const e=state.employees.find(x=>x.id===id); return e?(e.vsm||''):''; }
+
+/* ====================================================================
+ *  NOTIFICATIONS — แจ้งเตือนผู้รายงานเมื่อมีการดำเนินการกับเรื่องของเขา
+ * ==================================================================== */
+function notifMessages(old,patch){ // mirrors worker.js
+  const t=(old.title||'').slice(0,40); const msgs=[];
+  if(patch.safety_result==='approved'&&old.safety_result!=='approved') msgs.push(`✅ Safety อนุมัติเรื่อง "${t}"${patch.safety_note?' — '+patch.safety_note:''}`);
+  if(patch.safety_result==='rejected'&&old.safety_result!=='rejected') msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${patch.safety_note?' — '+patch.safety_note:''}`);
+  if(patch.status==='inprogress'&&old.status!=='inprogress') msgs.push(`🚀 เรื่อง "${t}" เริ่มดำเนินการแล้ว${patch.no?' (No.'+patch.no+')':''}`);
+  if(patch.status==='done'&&old.status!=='done') msgs.push(`🏁 เรื่อง "${t}" ปิดงานเรียบร้อยแล้ว`);
+  if(['title','detail','suggestion','category','machine','area_id'].some(k=>k in patch&&String(patch[k]??'')!==String(old[k]??''))) msgs.push(`✏️ มีการแก้ไขเนื้อหาเรื่อง "${t}"`);
+  return msgs;
+}
+function localNotify(empId,psifId,message){ // demo mode only
+  state.notifications=state.notifications||[];
+  state.notifications.unshift({id:Date.now()+Math.random(),employee_id:empId,psif_id:psifId,message,
+    by_id:CURRENT_USER?CURRENT_USER.id:'',by_name:CURRENT_USER?CURRENT_USER.name:'',is_read:0,
+    created_at:new Date().toISOString().slice(0,19).replace('T',' ')});
+  demoSave();
+}
+let _notifUnread=0, _notifT=null;
+async function loadNotifs(){
+  if(!CURRENT_USER) return;
+  if(online()){
+    // quiet fetch (no top progress bar — this polls in the background)
+    const res=await fetch(API.replace(/\/+$/,'')+'/notifications?employee_id='+encodeURIComponent(CURRENT_USER.id));
+    const d=await res.json(); if(!d.ok) return;
+    state.notifications=d.items; _notifUnread=d.unread;
+  } else {
+    const mine=(state.notifications||[]).filter(n=>n.employee_id===CURRENT_USER.id);
+    _notifUnread=mine.filter(n=>!n.is_read).length;
+  }
+  renderNotifBadge();
+}
+function renderNotifBadge(){
+  const b=$('notifBadge'); if(!b)return;
+  if(_notifUnread>0){ b.textContent=_notifUnread>99?'99+':_notifUnread; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+async function openNotifs(){
+  try{ await loadNotifs(); }catch(_){}
+  const mine = online()? (state.notifications||[]) : (state.notifications||[]).filter(n=>n.employee_id===CURRENT_USER.id);
+  openModal('🔔 การแจ้งเตือน', mine.length? mine.map(n=>`
+    <div class="item" ${n.is_read?'':'style="border-color:var(--blue-soft);background:var(--blue-light)"'} onclick="closeModal();${n.psif_id?`openItem(${n.psif_id})`:''}">
+      <div style="font-size:14px">${esc(n.message)}</div>
+      <div class="mt"><span>🕓 ${esc(n.created_at||'')}</span>${n.by_name?`<span>👤 ${esc(n.by_name)}</span>`:''}</div>
+    </div>`).join('') : '<div class="empty"><span class="ic">🔕</span>ยังไม่มีการแจ้งเตือน</div>');
+  if(_notifUnread>0){
+    if(online()){ try{ await api('/notifications/read',{body:{employee_id:CURRENT_USER.id}}); }catch(_){}}
+    else { (state.notifications||[]).forEach(n=>{ if(n.employee_id===CURRENT_USER.id) n.is_read=1; }); demoSave(); }
+    _notifUnread=0; renderNotifBadge();
+  }
+}
 
 async function importRows(rows){
   if(online()){ const d=await api('/import',{body:{rows}}); await reloadItems(); return d.imported; }
@@ -634,6 +711,8 @@ function enterApp(){
   const roleTxt = CURRENT_USER.role==='admin'?' · Admin':CURRENT_USER.role==='safety'?' · Safety':'';
   $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+roleTxt;
   fillStaticUI(); setPane('home');
+  loadNotifs().catch(()=>{});
+  clearInterval(_notifT); _notifT=setInterval(()=>loadNotifs().catch(()=>{}),60000);
 }
 function logout(){ LS.set('psif_user',null); CURRENT_USER=null; adminUnlocked=false; location.reload(); }
 function isAdmin(){ return CURRENT_USER && (CURRENT_USER.role==='admin' || adminUnlocked); }
@@ -654,9 +733,9 @@ function fillStaticUI(){
   $('vsmList').innerHTML=vsms.map(v=>`<option value="${esc(v)}">`).join('');
   $('areaList').innerHTML=state.areas.map(a=>`<option value="${esc(a.name)}">`).join('');
   $('machineList').innerHTML=[...new Set(state.items.map(i=>i.machine).filter(Boolean))].map(m=>`<option value="${esc(m)}">`).join('');
-  // reporter + vsm default
+  // reporter + vsm — หน่วยงานระบุอัตโนมัติจากทะเบียนพนักงาน (req: ระบบแยกเองว่ามาจากหน่วยงานไหน)
   $('cReporter').value=CURRENT_USER.name+' ('+CURRENT_USER.id+')';
-  if(!$('cVsm').value) $('cVsm').value=CURRENT_USER.vsm||'';
+  $('cVsm').value=empVsm(CURRENT_USER.id)||CURRENT_USER.vsm||'';
   // year selectors
   const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
   const opts=years.map(y=>`<option value="${y}">ปี ${y}</option>`).join('');
@@ -810,6 +889,7 @@ function openItem(id){
       : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
   }
   if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน (แนบรูปหลังแก้ไข)</button>`;
+  if(isSafety()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
   if(isAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
 
   openModal('รายละเอียด PSIF', `
@@ -869,6 +949,32 @@ async function doClose(){
   }catch(e){ toast('ปิดงานไม่สำเร็จ: '+e.message,'red'); }
 }
 async function delItem(id){ await deletePsif(id); toast('ลบแล้ว'); closeModal(); refreshAll(); }
+
+/* ---------------- edit content by approver (req: Admin/Safety แก้ไขเนื้อหาที่พนักงานส่งมาได้) ---------------- */
+function openEditItem(id){
+  const it=state.items.find(x=>x.id==id); if(!it)return;
+  openModal('✏️ แก้ไขเนื้อหา', `
+    <div class="note" style="margin-bottom:8px">แก้ไขเนื้อหาที่พนักงานส่งเข้ามา — ระบบจะแจ้งเตือนไปยังผู้รายงาน (${esc(it.reporter_name||it.reporter_id)})</div>
+    <label class="fl">ประเภท</label>
+    <select class="inp" id="edCat">${FIXED_CATS.map(c=>`<option ${it.category===c.name?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+    <label class="fl">หัวข้อเรื่อง</label><input class="inp" id="edTitle" value="${esc(it.title||'')}">
+    <label class="fl">รายละเอียด</label><textarea class="inp" id="edDetail">${esc(it.detail||'')}</textarea>
+    <label class="fl">ข้อเสนอแนะการแก้ไข</label><textarea class="inp" id="edSuggest">${esc(it.suggestion||'')}</textarea>
+    <div class="grid g2">
+      <div><label class="fl">พื้นที่</label><input class="inp" id="edArea" list="areaList" value="${esc(it.area_id||'')}"></div>
+      <div><label class="fl">เครื่องจักร / จุด</label><input class="inp" id="edMachine" list="machineList" value="${esc(it.machine||'')}"></div>
+    </div>
+    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEditItem(${id})">💾 บันทึกการแก้ไข</button>`);
+}
+async function saveEditItem(id){
+  const title=$('edTitle').value.trim();
+  if(!title){ toast('กรอกหัวข้อเรื่อง','red'); return; }
+  try{
+    await patchPsif(id,{title,category:$('edCat').value,detail:$('edDetail').value.trim(),
+      suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()});
+    toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green'); closeModal(); refreshAll();
+  }catch(e){ toast('แก้ไขไม่สำเร็จ: '+e.message,'red'); }
+}
 
 /* ====================================================================
  *  SAFETY pane
@@ -1031,9 +1137,11 @@ function renderSettings(){
   const y=yr();
   const vsms=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))];
   $('adminArea').innerHTML=`
-    <div class="card"><h3>📥 นำเข้าข้อมูลเดิมจาก Excel (เฉพาะ Admin)</h3>
+    <div class="card"><h3>📥 นำเข้าข้อมูลจาก Excel (เฉพาะ Admin)</h3>
       <div class="sub" style="margin-bottom:8px">คัดลอกจาก Excel แล้ววางด้านล่าง — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
-      <div class="note" style="margin-bottom:8px">1) วันที่ลงข้อมูล · 2) ชื่อพนักงาน · 3) รายละเอียด · 4) คำแนะนำการแก้ไข · 5) Safety อนุมัติ(ข้อความ) · 6) การดำเนินการ(จบ/ยัง) · 7) วันที่ปิดจบ<br><span style="opacity:.8">วันที่: รับ 15/01/2567 (พ.ศ.) หรือ 2024-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
+      <div class="note" style="margin-bottom:8px">1) วันที่ · 2) รหัสพนักงาน · 3) ประเภทเรื่อง · 4) เรื่อง · 5) ข้อเสนอการแก้ไข<br>
+      <span style="opacity:.8">ประเภท: PSIF / Near miss / Behavior · ระบบระบุ<b>หน่วยงาน</b>จากรหัสพนักงานให้อัตโนมัติ<br>
+      วันที่: รับ 15/01/2567 (พ.ศ.) หรือ 2024-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
       <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked> ข้ามแถวแรก (หัวตาราง)</label>
       <textarea class="inp" id="importBox" style="min-height:120px;font-family:monospace;font-size:12.5px" placeholder="วางข้อมูลจาก Excel ที่นี่..."></textarea>
       <div class="row" style="margin-top:8px">
@@ -1069,10 +1177,9 @@ function renderSettings(){
         <button class="btn btn-line btn-sm" onclick="editArea('${esc(a.id)}')">✏️</button>
         <button class="btn btn-line btn-sm" style="color:var(--red)" onclick="delMaster('areas','${esc(a.id)}').then(renderSettings)">🗑️</button></div>`).join('')}</div>
     </div>
-    <div class="card"><h3>🏷️ ประเภท PSIF (${state.categories.length})</h3>
-      <button class="btn btn-blue btn-sm" onclick="editCat()">➕ เพิ่ม</button>
-      <div style="margin-top:8px">${state.categories.map(c=>`<div class="kv"><span style="flex:1">${esc(c.name)}</span>
-        <button class="btn btn-line btn-sm" style="color:var(--red)" onclick="delMaster('categories','${esc(c.id)}').then(renderSettings)">🗑️</button></div>`).join('')}</div>
+    <div class="card"><h3>🏷️ ประเภท PSIF</h3>
+      <div class="sub">ระบบกำหนดไว้ 3 ประเภทเท่านั้น (แก้ไข/เพิ่มไม่ได้)</div>
+      <div style="margin-top:8px">${FIXED_CATS.map(c=>`<div class="kv"><span style="flex:1">${esc(c.name)}</span></div>`).join('')}</div>
     </div>`;
 }
 async function doIssue(){ const v=$('issVsm').value; await addIssuance(v,yr()); toast('เปิดดำเนินการ '+v,'green'); renderSettings(); }
@@ -1105,16 +1212,6 @@ async function saveArea(){
   await upsertMaster('areas',{id,name:$('aName').value.trim(),vsm:$('aVsm').value.trim(),active:1});
   toast('บันทึกแล้ว','green'); closeModal(); renderSettings();
 }
-function editCat(){
-  openModal('เพิ่มประเภท',`<label class="fl">ชื่อประเภท</label><input class="inp" id="catName">
-    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveCat()">บันทึก</button>`);
-}
-async function saveCat(){
-  const n=$('catName').value.trim(); if(!n){toast('กรอกชื่อ','red');return;}
-  await upsertMaster('categories',{id:'cat_'+Date.now(),name:n,active:1});
-  toast('เพิ่มแล้ว','green'); closeModal(); renderSettings();
-}
-
 /* ===================== IMPORT (Excel paste) — Admin only ===================== */
 function parseThaiDate(s){
   s=(s||'').trim(); if(!s) return null;
@@ -1126,16 +1223,13 @@ function parseThaiDate(s){
   if(m<1||m>12||d<1||d>31) return null;
   return { iso:`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, year:y };
 }
-function mapSafety(s){ s=(s||'').toLowerCase().trim();
-  if(/ไม่|reject|ไม่ผ่าน|ไม่อนุมัติ|\bno\b/.test(s)) return 'rejected';
-  if(/อนุมัติ|ผ่าน|approve|\byes\b|\bok\b|ใช่/.test(s)) return 'approved';
-  return 'pending';
+function mapCategory(s){ // บังคับให้อยู่ใน 3 ประเภทเท่านั้น
+  s=(s||'').toLowerCase().trim();
+  if(/near|เกือบ|เนียร์/.test(s)) return 'Near miss';
+  if(/behav|พฤติกรรม|กระทำ/.test(s)) return 'Behavior';
+  return 'PSIF';
 }
-function mapDone(s){ s=(s||'').trim(); if(!s) return false;
-  if(/ยัง|ไม่|กำลัง|รอ|\bnot\b|pending/i.test(s)) return false;   // "ยังไม่จบ" must NOT count as done
-  return /จบ|เสร็จ|เรียบร้อย|ปิด|done|complete|finish/i.test(s);
-}
-function matchEmp(name){
+function matchEmp(name){ // fallback: จับคู่ด้วยชื่อ (ตัดคำนำหน้า)
   name=(name||'').trim(); if(!name) return null;
   const strip=s=>(s||'').replace(/^(นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*/,'').trim();
   const n=strip(name);
@@ -1144,20 +1238,23 @@ function matchEmp(name){
       || (n? state.employees.find(e=>strip(e.name).includes(n)||n.includes(strip(e.name))):null)
       || null;
 }
+function matchEmpId(idTxt){ // หลัก: จับคู่ด้วยรหัสพนักงาน
+  idTxt=(idTxt||'').trim(); if(!idTxt) return null;
+  const u=idTxt.toUpperCase();
+  return state.employees.find(e=>(e.id||'').toUpperCase()===u) || matchEmp(idTxt);
+}
 function buildImportRecord(cols){
-  const [dDate,name,detail,suggest,safetyTxt,doneTxt,doneDate]=cols.map(c=>(c||'').trim());
-  const cd=parseThaiDate(dDate), dd=parseThaiDate(doneDate);
-  const safety=mapSafety(safetyTxt);
-  const done=mapDone(doneTxt)||!!dd;
-  let status = done?'done' : safety==='approved'?'inprogress' : safety==='rejected'?'safety' : 'recorded';
-  const emp=matchEmp(name);
+  const [dDate,empId,catTxt,title,suggest]=cols.map(c=>(c||'').trim());
+  const cd=parseThaiDate(dDate);
+  const emp=matchEmpId(empId);
   return {
-    reporter_id: emp?emp.id:(name||'-'), reporter_name: emp?emp.name:name, vsm: emp?(emp.vsm||''):'',
-    title: (detail||'').slice(0,120) || '(นำเข้าข้อมูล)', detail, suggestion:suggest, category:'',
-    status, safety_result:safety, safety_note:safetyTxt,
-    done_detail: done?'(นำเข้าข้อมูลเดิม)':'', done_at: dd?dd.iso:'',
-    created_at: cd?cd.iso+' 00:00:00':'', year: cd?cd.year:(dd?dd.year:yr()),
-    _matched:!!emp, _dateOk:!!cd, _name:name
+    reporter_id: emp?emp.id:(empId||'-'), reporter_name: emp?emp.name:empId,
+    vsm: emp?(emp.vsm||''):'',            // req: ระบบระบุหน่วยงานจากรหัสพนักงานเอง
+    category: mapCategory(catTxt),
+    title: (title||'').slice(0,200) || '(นำเข้าข้อมูล)', detail:'', suggestion:suggest,
+    status:'recorded', safety_result:'pending',
+    created_at: cd?cd.iso+' 00:00:00':'', year: cd?cd.year:yr(),
+    _matched:!!emp, _dateOk:!!cd, _name:empId
   };
 }
 function parseImportRows(){
@@ -1172,19 +1269,19 @@ function previewImport(){
   if(!_importRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — วางข้อมูลจาก Excel ก่อน (คั่นด้วย Tab)</div>'; $('importBtn').disabled=true; return; }
   const unmatched=_importRecs.filter(r=>!r._matched).map(r=>r._name).filter(Boolean);
   const badDate=_importRecs.filter(r=>!r._dateOk).length;
-  const done=_importRecs.filter(r=>r.status==='done').length;
   const rows=_importRecs.slice(0,8).map(r=>`<tr>
     <td>${esc(r.created_at?r.created_at.slice(0,10):'—')}</td>
-    <td>${esc(r.reporter_name||'-')}${r._matched?'':' <span class="badge b-orange" style="font-size:10px">ไม่พบรหัส</span>'}</td>
-    <td>${esc((r.detail||'').slice(0,40))}</td>
-    <td>${statusBadge(r)}</td>
-    <td>${esc(r.done_at||'—')}</td></tr>`).join('');
+    <td>${esc(r.reporter_id)}${r._matched?'':' <span class="badge b-orange" style="font-size:10px">ไม่พบรหัส</span>'}<div class="sub">${esc(r.reporter_name||'')}</div></td>
+    <td>${esc(r.vsm||'—')}</td>
+    <td>${esc(r.category)}</td>
+    <td>${esc((r.title||'').slice(0,40))}</td>
+    <td>${esc((r.suggestion||'').slice(0,30))}</td></tr>`).join('');
   box.innerHTML=`
-    <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · เสร็จ ${done} · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
-    ${unmatched.length?`<div class="warn">⚠️ ไม่พบรหัสพนักงานสำหรับ: ${esc([...new Set(unmatched)].slice(0,10).join(', '))}${unmatched.length>10?' …':''}<br>(จะบันทึกโดยใช้ชื่อที่วางมาเป็นผู้รายงาน)</div>`:''}
+    <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
+    ${unmatched.length?`<div class="warn">⚠️ ไม่พบรหัสพนักงาน: ${esc([...new Set(unmatched)].slice(0,10).join(', '))}${unmatched.length>10?' …':''}<br>(จะบันทึกโดยใช้รหัส/ชื่อที่วางมา และไม่ทราบหน่วยงาน)</div>`:''}
     ${badDate?`<div class="warn">⚠️ ${badDate} แถววันที่อ่านไม่ได้ — จะใช้ปี ${yr()} แทน (ตรวจรูปแบบวันที่)</div>`:''}
     <div class="scroll-x"><table class="tbl">
-      <tr><th>วันที่ลง</th><th>พนักงาน</th><th>รายละเอียด</th><th>สถานะ</th><th>วันปิด</th></tr>${rows}
+      <tr><th>วันที่</th><th>พนักงาน</th><th>หน่วยงาน</th><th>ประเภท</th><th>เรื่อง</th><th>ข้อเสนอ</th></tr>${rows}
     </table></div>
     <div class="sub" style="margin-top:4px">${_importRecs.length>8?'(แสดง 8 แถวแรก)':''}</div>`;
   $('importBtn').disabled=false; $('importBtn').textContent='นำเข้า '+_importRecs.length+' รายการ';
@@ -1243,14 +1340,6 @@ function closeModal(){ $('modalBg').classList.remove('open'); }
 /* ====================================================================
  *  DEFAULT (demo / first-run) DATA — mirrors schema.sql seed
  * ==================================================================== */
-const DEFAULT_CATS=[
-  {id:'unsafe_act',name:'การกระทำที่ไม่ปลอดภัย (Unsafe Act)',active:1},
-  {id:'unsafe_cond',name:'สภาพที่ไม่ปลอดภัย (Unsafe Condition)',active:1},
-  {id:'near_miss',name:'เกือบเกิดอุบัติเหตุ (Near Miss)',active:1},
-  {id:'improve',name:'ข้อเสนอแนะ/ปรับปรุง (Improvement)',active:1},
-  {id:'5s',name:'5ส / ความเป็นระเบียบ',active:1},
-  {id:'env',name:'สิ่งแวดล้อม (Environment)',active:1},
-];
 const DEFAULT_AREAS=[
   {id:'vsm4_zone1',name:'VSM4 - Zone 1',vsm:'VSM4',active:1},
   {id:'vsm4_zone2',name:'VSM4 - Zone 2',vsm:'VSM4',active:1},

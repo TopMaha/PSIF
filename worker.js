@@ -51,6 +51,7 @@ export default {
         case 'dupe':      return await dupeRoute(env, url);
         case 'report':    return await reportRoute(env, url, seg);
         case 'import':    return await importRoute(env, request);
+        case 'notifications': return await notifRoute(env, request, url, seg);
         default:          return err('not found: /' + head, 404);
       }
     } catch (e) {
@@ -155,6 +156,8 @@ async function psifRoute(env, request, seg) {
 
   if (request.method === 'PATCH' && id) {
     const b = await request.json();
+    const oldRow = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
+    if (!oldRow) return err('not found', 404);
     const allowed = ['no','reporter_name','vsm','area_id','machine','category','title','detail',
       'suggestion','status','safety_result','safety_note','safety_by','safety_at',
       'done_detail','done_by','done_at'];
@@ -166,6 +169,13 @@ async function psifRoute(env, request, seg) {
       sets.push('updated_at=?'); bind.push(nowISO());
       bind.push(id);
       await env.DB.prepare(`UPDATE psif SET ${sets.join(',')} WHERE id=?`).bind(...bind).run();
+    }
+    // req: notify the reporter whenever someone else acts on their record
+    const actor = b._by || '';
+    if (oldRow.reporter_id && actor !== oldRow.reporter_id) {
+      for (const m of notifMessages(oldRow, b)) {
+        await notify(env, oldRow.reporter_id, +id, m, actor, b._by_name || '');
+      }
     }
     if (Array.isArray(b.photos)) {
       for (const p of b.photos) {
@@ -180,11 +190,62 @@ async function psifRoute(env, request, seg) {
   }
 
   if (request.method === 'DELETE' && id) {
+    const u = new URL(request.url);
+    const row = await env.DB.prepare('SELECT reporter_id,title FROM psif WHERE id=?').bind(id).first();
     const photos = (await env.DB.prepare('SELECT r2_key FROM psif_photos WHERE psif_id=?').bind(id).all()).results;
     if (env.BUCKET) { for (const p of photos) { try { await env.BUCKET.delete(p.r2_key); } catch (_) {} } }
     await env.DB.prepare('DELETE FROM psif_photos WHERE psif_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM psif WHERE id=?').bind(id).run();
+    const actor = u.searchParams.get('by') || '';
+    if (row && row.reporter_id && actor !== row.reporter_id) {
+      await notify(env, row.reporter_id, +id,
+        `🗑️ เรื่อง "${(row.title || '').slice(0, 40)}" ถูกลบออกจากระบบ`,
+        actor, u.searchParams.get('by_name') || '');
+    }
     return ok({ deleted: id });
+  }
+  return err('method not allowed', 405);
+}
+
+/* ---------------- notifications (req: alert the reporter on any action) ---------------- */
+function notifMessages(oldRow, b) {
+  const t = (oldRow.title || '').slice(0, 40);
+  const msgs = [];
+  if (b.safety_result === 'approved' && oldRow.safety_result !== 'approved')
+    msgs.push(`✅ Safety อนุมัติเรื่อง "${t}"${b.safety_note ? ' — ' + b.safety_note : ''}`);
+  if (b.safety_result === 'rejected' && oldRow.safety_result !== 'rejected')
+    msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${b.safety_note ? ' — ' + b.safety_note : ''}`);
+  if (b.status === 'inprogress' && oldRow.status !== 'inprogress')
+    msgs.push(`🚀 เรื่อง "${t}" เริ่มดำเนินการแล้ว${b.no ? ' (No.' + b.no + ')' : ''}`);
+  if (b.status === 'done' && oldRow.status !== 'done')
+    msgs.push(`🏁 เรื่อง "${t}" ปิดงานเรียบร้อยแล้ว`);
+  const edited = ['title', 'detail', 'suggestion', 'category', 'machine', 'area_id']
+    .some(k => k in b && String(b[k] ?? '') !== String(oldRow[k] ?? ''));
+  if (edited) msgs.push(`✏️ มีการแก้ไขเนื้อหาเรื่อง "${t}"`);
+  return msgs;
+}
+async function notify(env, empId, psifId, message, byId, byName) {
+  try {
+    await env.DB.prepare(
+      'INSERT INTO notifications (employee_id,psif_id,message,by_id,by_name,is_read,created_at) VALUES (?,?,?,?,?,0,?)'
+    ).bind(empId, psifId, message, byId || '', byName || '', nowISO()).run();
+  } catch (_) { /* table missing — don't break the main action */ }
+}
+async function notifRoute(env, request, url, seg) {
+  if (request.method === 'GET') {
+    const emp = url.searchParams.get('employee_id');
+    if (!emp) return err('employee_id required');
+    const rows = (await env.DB.prepare(
+      'SELECT * FROM notifications WHERE employee_id=? ORDER BY id DESC LIMIT 50').bind(emp).all()).results;
+    const unread = (await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM notifications WHERE employee_id=? AND is_read=0').bind(emp).first())?.n || 0;
+    return ok({ items: rows, unread });
+  }
+  if (request.method === 'POST' && seg[1] === 'read') {
+    const b = await request.json();
+    if (!b.employee_id) return err('employee_id required');
+    await env.DB.prepare('UPDATE notifications SET is_read=1 WHERE employee_id=?').bind(b.employee_id).run();
+    return ok({});
   }
   return err('method not allowed', 405);
 }
