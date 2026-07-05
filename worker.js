@@ -131,14 +131,16 @@ async function psifRoute(env, request, seg) {
 
   if (request.method === 'POST') {
     const b = await request.json();
-    if (!b.reporter_id || !b.title) return err('reporter_id and title required');
+    if (!b.reporter_id) return err('reporter_id required');
+    // title field was removed from the form — derive it from the detail
+    const title = (b.title || (b.detail || '').replace(/\s+/g, ' ').trim().slice(0, 120) || '(ไม่มีหัวข้อ)');
     const year = b.year || new Date().getFullYear();
     const r = await env.DB.prepare(
       `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,status,year,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?, 'recorded', ?,?,?)`
     ).bind(
       b.no || '', b.reporter_id, b.reporter_name || '', b.vsm || '', b.area_id || '',
-      b.machine || '', b.category || '', b.title, b.detail || '', b.suggestion || '',
+      b.machine || '', b.category || '', title, b.detail || '', b.suggestion || '',
       year, nowISO(), nowISO()
     ).run();
     const newId = r.meta.last_row_id;
@@ -149,6 +151,18 @@ async function psifRoute(env, request, seg) {
         if (k && !k.startsWith('data:')) await addPhoto(env, newId, p.kind || 'before', k);
       }
     }
+    // req: notify the Admin/Manager group (role admin|safety) when a new report arrives
+    try {
+      const mgrs = (await env.DB.prepare(
+        "SELECT id FROM employees WHERE role IN ('admin','safety') AND active=1"
+      ).all()).results;
+      const rn = b.reporter_name || b.reporter_id;
+      const t = title.slice(0, 40);
+      for (const m of mgrs) {
+        if (m.id === b.reporter_id) continue;
+        await notify(env, m.id, newId, `🆕 เรื่องใหม่จาก ${rn}: "${t}"`, b.reporter_id, b.reporter_name || '');
+      }
+    } catch (_) { /* notifications table missing — don't break the create */ }
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(newId).first();
     await attachPhotos(env, [row]);
     return ok({ item: row });
