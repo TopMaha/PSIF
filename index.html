@@ -564,7 +564,9 @@ async function bootstrap(){
     const d = await api('/bootstrap');
     state.employees=d.employees; state.areas=d.areas; state.categories=FIXED_CATS;
     state.targets=d.targets; state.issuances=d.issuances;
-    const r = await api('/psif'); state.items=r.items;
+    // โหลดรายการ PSIF แยกกัน: ถ้าพลาด อย่าให้ทับรายชื่อพนักงาน (จะได้ล็อกอินได้เสมอ)
+    try{ const r = await api('/psif'); state.items=r.items; }
+    catch(e){ state.items=state.items||[]; toast('โหลดรายการไม่สำเร็จ: '+e.message,'orange'); }
   } else {
     demoLoad();
   }
@@ -694,7 +696,16 @@ async function openNotifs(){
 }
 
 async function importRows(rows){
-  if(online()){ const d=await api('/import',{body:{rows}}); await reloadItems(); return d.imported; }
+  if(online()){
+    // ส่งเป็นชุด (batch) กันชนขีดจำกัดของ Worker เวลานำเข้าจำนวนมาก (เช่นย้ายข้อมูลทั้งก้อน)
+    const CHUNK=200; let imported=0;
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const d=await api('/import',{body:{rows:rows.slice(i,i+CHUNK)}});
+      imported += (d && d.imported) || 0;
+      if(rows.length>CHUNK){ const btn=$('importBtn'); if(btn) btn.textContent=`กำลังนำเข้า ${Math.min(i+CHUNK,rows.length)}/${rows.length}...`; }
+    }
+    await reloadItems(); return imported;
+  }
   // demo: insert locally with sequential ids
   let maxId=Math.max(0,...state.items.map(i=>i.id)), n=0;
   for(const r of rows){ state.items.unshift({id:++maxId, no:'', photos:[], updated_at:r.created_at||'', ...r}); n++; }
@@ -762,11 +773,14 @@ async function bootApp(){
   if(saved && state.employees.find(e=>e.id===saved.id)){ CURRENT_USER=saved; enterApp(); }
 }
 async function doLogin(){
-  const v=$('lockInput').value.trim().toUpperCase();
-  if(!v){ $('lockErr').textContent='กรอกรหัสพนักงาน'; return; }
-  if(!state.employees.length){ try{await bootstrap();}catch(_){} }
-  const emp = state.employees.find(e=>(e.id||'').toUpperCase()===v);
-  if(!emp){ $('lockErr').textContent='ไม่พบรหัสพนักงานนี้'; return; }
+  const raw=$('lockInput').value.trim();
+  if(!raw){ $('lockErr').textContent='กรอกรหัสพนักงาน'; return; }
+  if(!state.employees.length){ $('lockErr').textContent='กำลังโหลดรายชื่อ...'; try{await bootstrap();}catch(_){} }
+  if(!state.employees.length){ $('lockErr').textContent='เชื่อมต่อฐานข้อมูลไม่ได้ — ตรวจอินเทอร์เน็ต หรือ URL ในหน้าตั้งค่า'; return; }
+  const v=raw.toUpperCase(), b=bareCode(raw);
+  const emp = state.employees.find(e=>(e.id||'').toUpperCase()===v)   // ตรงเป๊ะก่อน
+           || state.employees.find(e=>bareCode(e.id)===b);            // แล้วค่อยยอมรับขีด/ช่องว่างต่างกัน (G260 = G-260)
+  if(!emp){ $('lockErr').textContent='ไม่พบรหัสพนักงานนี้ (ลองใส่ขีด เช่น G-260)'; return; }
   CURRENT_USER={id:emp.id,name:emp.name,vsm:emp.vsm||'',role:emp.role||'user'};
   LS.set('psif_user',CURRENT_USER);
   enterApp();
@@ -1323,10 +1337,12 @@ function renderSettings(){
   const vsms=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))];
   $('adminArea').innerHTML=`
     <div class="card"><h3>📥 นำเข้าข้อมูลจาก Excel (เฉพาะ Admin)</h3>
-      <div class="sub" style="margin-bottom:8px">คัดลอกจาก Excel แล้ววางด้านล่าง — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
-      <div class="note" style="margin-bottom:8px">1) วันที่ · 2) รหัสพนักงาน · 3) ประเภทเรื่อง · 4) เรื่อง · 5) ข้อเสนอการแก้ไข<br>
+      <div class="sub" style="margin-bottom:8px">คัดลอกทั้งตารางจาก Excel แล้ววางด้านล่าง (ย้ายข้อมูลจากที่อื่นเข้าระบบนี้) — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
+      <div class="note" style="margin-bottom:8px">1) วันที่ · 2) รหัสพนักงาน · 3) ประเภทเรื่อง · 4) เรื่อง · 5) ข้อเสนอแนะการแก้ไข · 6) การอนุมัติจาก Safety · 7) การดำเนินการ · 8) หมายเลข PSIF · 9) สถานที่/เครื่องจักร<br>
       <span style="opacity:.8">ประเภท: PSIF / Near miss / Behavior · ระบบระบุ<b>หน่วยงาน</b>จากรหัสพนักงานให้อัตโนมัติ<br>
-      วันที่: รับ 15/01/2567 (พ.ศ.) หรือ 2024-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
+      การอนุมัติจาก Safety: <b>Done</b> = Safety อนุมัติ · <b>ไม่เข้าข่าย/ซ้ำ</b> = ไม่อนุมัติ · เว้นว่าง = รอ Safety<br>
+      การดำเนินการ: <b>Completed</b> = เสร็จ/จบแล้ว · <b>Scheduled</b> = กำลังดำเนินการ · เว้นว่าง = ยังไม่เริ่ม<br>
+      วันที่: รับเลข Excel (เช่น 46050), 15/01/2567 (พ.ศ.) หรือ 2026-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
       <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked> ข้ามแถวแรก (หัวตาราง)</label>
       <textarea class="inp" id="importBox" style="min-height:120px;font-family:monospace;font-size:12.5px" placeholder="วางข้อมูลจาก Excel ที่นี่..."></textarea>
       <div class="row" style="margin-top:8px">
@@ -1409,6 +1425,48 @@ function parseThaiDate(s){
   if(m<1||m>12||d<1||d>31) return null;
   return { iso:`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, year:y };
 }
+function parseImpDate(s){   // date column may paste as an Excel serial number OR a text date
+  s=(s||'').trim(); if(!s) return null;
+  if(/^\d{4,6}(\.\d+)?$/.test(s)){   // pure number -> Excel serial (days since 1899-12-30)
+    const serial=parseFloat(s);
+    if(serial>20000 && serial<80000){         // ~1954 .. 2119 (sanity range)
+      const dt=new Date(Math.round((serial-25569)*86400000));  // 25569 = 1899-12-30 -> 1970-01-01
+      const y=dt.getUTCFullYear(), m=dt.getUTCMonth()+1, d=dt.getUTCDate();
+      return { iso:`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, year:y };
+    }
+  }
+  return parseThaiDate(s);
+}
+/* Excel clipboard is TSV, but a cell containing tab/newline/quote is wrapped in
+   double-quotes (inner quotes doubled). Parse that properly so embedded newlines
+   inside a cell (e.g. the "หมายเลข PSIF" column) don't split a record. */
+function parseTSV(text){
+  text=(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const rows=[]; let row=[], field='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;} else q=false; }
+      else field+=c;
+    } else if(c==='"'){ q=true; }
+    else if(c==='\t'){ row.push(field); field=''; }
+    else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+    else field+=c;
+  }
+  if(field!==''||row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+function mapSafety(f){   // การอนุมัติจาก Safety
+  const s=(f||'').trim(); if(!s) return {safety_result:'pending', safety_note:''};
+  if(/^done$/i.test(s) || /อนุมัติ|ผ่าน|approve/i.test(s)) return {safety_result:'approved', safety_note:''};
+  return {safety_result:'rejected', safety_note:s};   // ไม่เข้าข่าย / ซ้ำ / อื่นๆ = Safety พิจารณาแล้วไม่อนุมัติ
+}
+function mapAction(g){   // การดำเนินการ -> ระดับความคืบหน้า
+  const s=(g||'').trim().toLowerCase(); if(!s) return '';
+  if(s==='completed' || /เสร็จ|จบ|complete|closed/.test(s)) return 'done';
+  if(s==='scheduled'  || /กำลัง|กำหนด|schedul|progress/.test(s)) return 'inprogress';
+  return '';
+}
 function mapCategory(s){ // บังคับให้อยู่ใน 3 ประเภทเท่านั้น
   s=(s||'').toLowerCase().trim();
   if(/near|เกือบ|เนียร์/.test(s)) return 'Near miss';
@@ -1424,29 +1482,48 @@ function matchEmp(name){ // fallback: จับคู่ด้วยชื่อ
       || (n? state.employees.find(e=>strip(e.name).includes(n)||n.includes(strip(e.name))):null)
       || null;
 }
-function matchEmpId(idTxt){ // หลัก: จับคู่ด้วยรหัสพนักงาน
+const bareCode=s=>(s||'').toUpperCase().replace(/[\s-]/g,''); // L-2155 / L2155 / "L -2155" -> L2155
+function matchEmpId(idTxt){ // หลัก: จับคู่ด้วยรหัสพนักงาน (ยอมรับขีด/ช่องว่างต่างกัน)
   idTxt=(idTxt||'').trim(); if(!idTxt) return null;
-  const u=idTxt.toUpperCase();
-  return state.employees.find(e=>(e.id||'').toUpperCase()===u) || matchEmp(idTxt);
+  const u=idTxt.toUpperCase(), b=bareCode(idTxt);
+  return state.employees.find(e=>(e.id||'').toUpperCase()===u)
+      || state.employees.find(e=>bareCode(e.id)===b)
+      || matchEmp(idTxt);
 }
 function buildImportRecord(cols){
-  const [dDate,empId,catTxt,title,suggest]=cols.map(c=>(c||'').trim());
-  const cd=parseThaiDate(dDate);
+  // 1)วันที่ 2)รหัสพนักงาน 3)ประเภทเรื่อง 4)เรื่อง 5)ข้อเสนอแนะการแก้ไข
+  // 6)การอนุมัติจาก Safety 7)การดำเนินการ 8)หมายเลข PSIF 9)สถานที่/เครื่องจักร
+  const [dDate,empId,catTxt,title,suggest,safetyTxt,actionTxt,psifNo,machine]=cols.map(c=>(c||'').trim());
+  const cd=parseImpDate(dDate);
   const emp=matchEmpId(empId);
+  const sf=mapSafety(safetyTxt);
+  const act=mapAction(actionTxt);
+  // status: ถ้า Safety ไม่อนุมัติ -> ปิดที่ขั้น safety · ไม่งั้นดูการดำเนินการ · อนุมัติแต่ยังไม่เริ่ม -> safety
+  let status;
+  if(sf.safety_result==='rejected') status='safety';
+  else if(act==='done') status='done';
+  else if(act==='inprogress') status='inprogress';
+  else if(sf.safety_result==='approved') status='safety';
+  else status='recorded';
+  const dateStr = cd ? cd.iso+' 00:00:00' : '';
   return {
+    no: psifNo||'',
     reporter_id: emp?emp.id:(empId||'-'), reporter_name: emp?emp.name:empId,
     vsm: emp?(emp.vsm||''):'',            // req: ระบบระบุหน่วยงานจากรหัสพนักงานเอง
     category: mapCategory(catTxt),
     title: (title||'').slice(0,200) || '(นำเข้าข้อมูล)', detail:'', suggestion:suggest,
-    status:'recorded', safety_result:'pending',
-    created_at: cd?cd.iso+' 00:00:00':'', year: cd?cd.year:yr(),
+    machine: machine||'',
+    status, safety_result: sf.safety_result, safety_note: sf.safety_note,
+    safety_at: (sf.safety_result!=='pending' && dateStr) ? dateStr : '',
+    done_detail:'', done_by: status==='done'?(emp?emp.id:''):'', done_at: status==='done'?dateStr:'',
+    created_at: dateStr, year: cd?cd.year:yr(),
     _matched:!!emp, _dateOk:!!cd, _name:empId
   };
 }
 function parseImportRows(){
-  let lines=($('importBox').value||'').split(/\r?\n/).filter(l=>l.trim());
-  if($('importHeader').checked) lines=lines.slice(1);
-  return lines.map(l=>buildImportRecord(l.split('\t')));
+  let rows=parseTSV($('importBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
+  if($('importHeader').checked && rows.length) rows=rows.slice(1);
+  return rows.map(cols=>buildImportRecord(cols));
 }
 let _importRecs=[];
 function previewImport(){
@@ -1455,19 +1532,26 @@ function previewImport(){
   if(!_importRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — วางข้อมูลจาก Excel ก่อน (คั่นด้วย Tab)</div>'; $('importBtn').disabled=true; return; }
   const unmatched=_importRecs.filter(r=>!r._matched).map(r=>r._name).filter(Boolean);
   const badDate=_importRecs.filter(r=>!r._dateOk).length;
+  const nApproved=_importRecs.filter(r=>r.safety_result==='approved').length;
+  const nRejected=_importRecs.filter(r=>r.safety_result==='rejected').length;
+  const nDone=_importRecs.filter(r=>r.status==='done').length;
+  const stLabel=r=> r.safety_result==='rejected' ? '<span class="badge b-red" style="font-size:10px">ไม่อนุมัติ</span>'
+      : ({recorded:'บันทึก',safety:'Safety อนุมัติ',inprogress:'กำลังทำ',done:'<b>เสร็จ</b>'}[r.status]||r.status);
   const rows=_importRecs.slice(0,8).map(r=>`<tr>
     <td>${esc(r.created_at?r.created_at.slice(0,10):'—')}</td>
+    <td>${esc(r.no||'—')}</td>
     <td>${esc(r.reporter_id)}${r._matched?'':' <span class="badge b-orange" style="font-size:10px">ไม่พบรหัส</span>'}<div class="sub">${esc(r.reporter_name||'')}</div></td>
     <td>${esc(r.vsm||'—')}</td>
     <td>${esc(r.category)}</td>
-    <td>${esc((r.title||'').slice(0,40))}</td>
-    <td>${esc((r.suggestion||'').slice(0,30))}</td></tr>`).join('');
+    <td>${esc((r.title||'').slice(0,36))}</td>
+    <td>${esc(r.machine||'—')}</td>
+    <td>${stLabel(r)}</td></tr>`).join('');
   box.innerHTML=`
-    <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
+    <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · Safety อนุมัติ ${nApproved} · ไม่อนุมัติ ${nRejected} · เสร็จแล้ว ${nDone} · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
     ${unmatched.length?`<div class="warn">⚠️ ไม่พบรหัสพนักงาน: ${esc([...new Set(unmatched)].slice(0,10).join(', '))}${unmatched.length>10?' …':''}<br>(จะบันทึกโดยใช้รหัส/ชื่อที่วางมา และไม่ทราบหน่วยงาน)</div>`:''}
     ${badDate?`<div class="warn">⚠️ ${badDate} แถววันที่อ่านไม่ได้ — จะใช้ปี ${yr()} แทน (ตรวจรูปแบบวันที่)</div>`:''}
     <div class="scroll-x"><table class="tbl">
-      <tr><th>วันที่</th><th>พนักงาน</th><th>หน่วยงาน</th><th>ประเภท</th><th>เรื่อง</th><th>ข้อเสนอ</th></tr>${rows}
+      <tr><th>วันที่</th><th>No.PSIF</th><th>พนักงาน</th><th>หน่วยงาน</th><th>ประเภท</th><th>เรื่อง</th><th>เครื่องจักร</th><th>สถานะ</th></tr>${rows}
     </table></div>
     <div class="sub" style="margin-top:4px">${_importRecs.length>8?'(แสดง 8 แถวแรก)':''}</div>`;
   $('importBtn').disabled=false; $('importBtn').textContent='นำเข้า '+_importRecs.length+' รายการ';

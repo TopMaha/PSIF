@@ -271,9 +271,18 @@ async function addPhoto(env, psifId, kind, key) {
 async function attachPhotos(env, rows) {
   if (!rows.length) return;
   const ids = rows.map(r => r.id);
-  const ph = (await env.DB.prepare(
-    `SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (${ids.map(()=>'?').join(',')})`
-  ).bind(...ids).all()).results;
+  // D1 caps bound parameters at ~100 per query, so chunk the IN(...) lookup.
+  // Without this, loading many records (e.g. after a bulk import) throws
+  // "too many SQL variables" and breaks the whole /psif (and app bootstrap).
+  const ph = [];
+  const CHUNK = 90;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const part = (await env.DB.prepare(
+      `SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (${slice.map(()=>'?').join(',')})`
+    ).bind(...slice).all()).results;
+    for (const p of part) ph.push(p);
+  }
   // Optional: serve straight from an R2 public bucket / custom domain to take
   // load off the Worker. Set the R2_PUBLIC_BASE var to enable (e.g.
   // https://pub-xxxx.r2.dev  or  https://photos.yourdomain.com). If unset, the
