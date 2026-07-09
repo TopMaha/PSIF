@@ -379,6 +379,51 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .dbrk-lg .lg b{color:var(--text)}
 .dbrk-lg .lg i{width:9px;height:9px;border-radius:2px;display:inline-block;flex:0 0 auto}
 .d-con{background:var(--blue)} .d-nm{background:var(--amber)} .d-beh{background:var(--purple)}
+
+/* ---------- status donut (req: สถานะงานเป็นกราฟวงกลม) ---------- */
+.donut-wrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.donut{position:relative;width:150px;height:150px;flex:0 0 auto;margin:0 auto}
+.donut svg{width:150px;height:150px;display:block}
+.donut svg circle{transition:stroke-dasharray .6s cubic-bezier(.2,.8,.2,1)}
+.donut-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.donut-c b{font-family:var(--font-display);font-size:27px;color:var(--navy);line-height:1}
+.donut-c span{font-size:11px;color:var(--muted);margin-top:3px}
+.donut-lg{flex:1;min-width:170px}
+.lg-row{display:flex;align-items:center;gap:9px;margin:8px 0;font-size:13px}
+.lg-sw{width:12px;height:12px;border-radius:4px;flex:0 0 auto}
+.lg-nm{flex:1;color:var(--text)}
+.lg-vl{font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lg-vl b{color:var(--text)}
+
+/* ---------- target bars per VSM/หน่วยงาน (req: กราฟแท่งแนวนอนเทียบ Target) ---------- */
+.vgroup{padding:12px 0;border-bottom:1px solid var(--border)}
+.vgroup:last-child{border-bottom:0;padding-bottom:2px}
+.vgroup-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:9px}
+.vgroup-h b{font-size:14.5px;color:var(--navy)}
+.vgroup-s{font-size:11.5px;color:var(--muted);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tbar{display:flex;align-items:center;gap:9px;margin:7px 0}
+.tbar-cap{width:108px;flex-shrink:0;font-size:12.5px;font-weight:600;color:var(--text)}
+.tbar-track{position:relative;flex:1;height:16px;background:#EEF2F8;border-radius:8px;overflow:hidden}
+.tbar-fill{height:100%;border-radius:8px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+.tbar-fill.con{background:linear-gradient(90deg,var(--blue),var(--navy))}
+.tbar-fill.beh{background:linear-gradient(90deg,#a78bfa,var(--purple))}
+.tbar-fill.nm{background:linear-gradient(90deg,#fbbf24,var(--amber))}
+.tbar-fill.over{background:linear-gradient(90deg,#f87171,var(--red))}
+.tbar-num{width:96px;text-align:right;font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.tbar-num.over{color:var(--red)}
+.tbar-num .ex{font-weight:800}
+
+/* ---------- pagination (req: แสดง 20 อันดับ + แบ่งหน้า) ---------- */
+.pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;margin:16px 0 4px}
+.pgbtn{min-width:36px;height:36px;padding:0 10px;border:1px solid var(--border);background:var(--card);border-radius:10px;font-weight:700;font-size:13px;color:var(--text);transition:.12s}
+.pgbtn:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.pgbtn.on{background:linear-gradient(135deg,var(--blue),var(--navy));color:#fff;border-color:var(--blue);box-shadow:0 3px 10px rgba(29,78,216,.28)}
+.pgbtn:disabled{opacity:.4;cursor:default}
+.pg-dot{color:var(--muted2);padding:0 2px}
+.pg-info{font-size:11.5px;color:var(--muted);width:100%;text-align:center;margin-top:2px}
+
+/* ---------- bottom-nav spacer (keep FAB centred when nav items are hidden) ---------- */
+.navspacer{flex:1}
 </style>
 </head>
 <body>
@@ -405,7 +450,6 @@ label.fl{font-weight:600;letter-spacing:.2px}
     <div class="sp"></div>
     <div class="who" id="who"></div>
     <button class="iconbtn bell" title="การแจ้งเตือน" onclick="openNotifs()">🔔<span id="notifBadge" class="nbadge hidden"></span></button>
-    <button class="iconbtn" title="ตั้งค่า" onclick="setPane('settings')">⚙️</button>
     <button class="iconbtn" title="ออกจากระบบ" onclick="logout()">⏻</button>
   </div>
 
@@ -429,7 +473,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
     <div class="wrap">
       <h2 style="font-size:18px;margin-bottom:8px">🗂️ ติดตามงาน</h2>
       <div id="listScopeBar"></div>
-      <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="renderList()" style="margin-bottom:8px">
+      <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="listPage=1;renderList()" style="margin-bottom:8px">
       <div class="chips" id="listChips"></div>
       <div id="listBody"></div>
     </div>
@@ -477,18 +521,6 @@ label.fl{font-weight:600;letter-spacing:.2px}
     </div>
   </div>
 
-  <!-- ===== REPORT ===== -->
-  <div class="pane" id="pane-report">
-    <div class="wrap">
-      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h2 style="font-size:18px">📊 รายงาน</h2>
-        <select class="inp btn-sm" id="repYear" style="width:auto;padding:6px 8px" onchange="renderReport()"></select>
-      </div>
-      <div class="chips" id="repChips"></div>
-      <div id="repBody"></div>
-    </div>
-  </div>
-
   <!-- ===== SETTINGS ===== -->
   <div class="pane" id="pane-settings">
     <div class="wrap">
@@ -507,14 +539,8 @@ label.fl{font-weight:600;letter-spacing:.2px}
     </div>
   </div>
 
-  <!-- ===== bottom nav ===== -->
-  <nav class="bnav">
-    <button data-pane="home"   onclick="setPane('home')"><span class="ico">📊</span><span class="lbl">แดชบอร์ด</span></button>
-    <button data-pane="list"   onclick="setPane('list')"><span class="ico">🗂️</span><span class="lbl">ติดตาม</span></button>
-    <button data-pane="create" class="fab" onclick="setPane('create')"><span class="ico">✏️</span><span class="lbl">บันทึก</span></button>
-    <button data-pane="safety" onclick="setPane('safety')"><span class="ico">🛡️</span><span class="lbl">Safety</span></button>
-    <button data-pane="report" onclick="setPane('report')"><span class="ico">📊</span><span class="lbl">รายงาน</span></button>
-  </nav>
+  <!-- ===== bottom nav (built by renderNav() — items depend on role) ===== -->
+  <nav class="bnav" id="bnav"></nav>
 </div>
 
 <!-- datalists -->
@@ -851,7 +877,7 @@ function enterApp(){
   $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
   const roleTxt = CURRENT_USER.role==='admin'?' · Admin':CURRENT_USER.role==='safety'?' · Safety':'';
   $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+roleTxt;
-  fillStaticUI(); setPane('home');
+  renderNav(); fillStaticUI(); setPane('home');
   loadNotifs().catch(()=>{});
   clearInterval(_notifT); _notifT=setInterval(()=>loadNotifs().catch(()=>{}),60000);
 }
@@ -862,7 +888,26 @@ function requireAdmin(){
   if(isAdmin()) return true;
   const pw=prompt('🔐 เฉพาะ Admin — กรอกรหัสผ่าน:'); if(pw==null)return false;
   if(pw!==ADMIN_PASSWORD){ toast('รหัสผ่านไม่ถูกต้อง','red'); return false; }
-  adminUnlocked=true; toast('🔓 ปลดล็อก Admin','green'); return true;
+  adminUnlocked=true; renderNav(); toast('🔓 ปลดล็อก Admin','green'); return true;
+}
+
+/* ---------------- bottom nav (req #1/#2: เมนูตามสิทธิ์ — user ไม่เห็น Safety/ตั้งค่า) ---------------- */
+function navBtn(pane,ico,lbl,cls=''){
+  return `<button data-pane="${pane}" class="${cls}" onclick="setPane('${pane}')"><span class="ico">${ico}</span><span class="lbl">${lbl}</span></button>`;
+}
+function renderNav(){
+  const sa=isSafety();
+  const right = sa
+    ? navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า')
+    : '<span class="navspacer"></span><span class="navspacer"></span>';
+  $('bnav').innerHTML =
+    navBtn('home','📊','แดชบอร์ด')+
+    navBtn('list','🗂️','ติดตาม')+
+    navBtn('create','✏️','บันทึก','fab')+
+    right;
+  const active=document.querySelector('.pane.active');
+  const cur=active?active.id.replace('pane-',''):'home';
+  document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===cur));
 }
 
 /* ---------------- static UI fills ---------------- */
@@ -881,7 +926,8 @@ function fillStaticUI(){
   // year selectors
   const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
   const opts=years.map(y=>`<option value="${y}">ปี ${y}</option>`).join('');
-  $('dashYear').innerHTML=opts; $('repYear').innerHTML=opts;
+  $('dashYear').innerHTML=opts;
+  const expY=$('expYear'); if(expY){ const cur=expY.value; expY.innerHTML=opts; if(cur) expY.value=cur; }
   // api field
   $('apiUrl').value=API;
 }
@@ -889,6 +935,8 @@ function fillStaticUI(){
 /* ---------------- navigation ---------------- */
 let dashWide = LS.get('psif_dashwide',false);
 function setPane(p){
+  // req #1: Safety/ตั้งค่า เฉพาะ Safety & Admin — user ที่พยายามเข้า ถูกส่งกลับหน้าแดชบอร์ด
+  if((p==='safety'||p==='settings') && !isSafety()){ p='home'; }
   document.querySelectorAll('.pane').forEach(el=>el.classList.remove('active'));
   $('pane-'+p).classList.add('active');
   document.querySelectorAll('.bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===p));
@@ -896,7 +944,6 @@ function setPane(p){
   if(p==='home') renderDash();
   if(p==='list') renderList();
   if(p==='safety') renderSafety();
-  if(p==='report') renderReport();
   if(p==='create') refreshCreate();
   if(p==='settings') renderSettings();
 }
@@ -979,6 +1026,26 @@ function confirmDupe(dupes){
  * ==================================================================== */
 let listFilter='all';
 let listScope='mine'; // user: 'mine' เท่านั้น · admin/safety: 'mine' | 'all' | ชื่อแผนก
+
+/* ---------------- pagination (req #4: แสดงทีละ 20 รายการ + แบ่งหน้า ลดการโหลด) ---------------- */
+const PAGE_SIZE=20;
+let listPage=1, safetyPage=1;
+function pagerHtml(total,page,per,fn){
+  const pages=Math.ceil(total/per)||1;
+  const start=total?((page-1)*per+1):0, end=Math.min(total,page*per);
+  const info=`<div class="pg-info">แสดง ${start}–${end} จาก ${total.toLocaleString()} รายการ</div>`;
+  if(pages<=1) return info;
+  const b=(p,lbl,o={})=>`<button class="pgbtn${o.on?' on':''}" ${o.dis?'disabled':''} onclick="${fn}(${p})">${lbl}</button>`;
+  const nums=[]; const win=1;
+  const lo=Math.max(1,page-win), hi=Math.min(pages,page+win);
+  const add=p=>nums.push(b(p,p,{on:p===page}));
+  if(lo>1){ add(1); if(lo>2) nums.push('<span class="pg-dot">…</span>'); }
+  for(let p=lo;p<=hi;p++) add(p);
+  if(hi<pages){ if(hi<pages-1) nums.push('<span class="pg-dot">…</span>'); add(pages); }
+  return `<div class="pager">${b(page-1,'‹',{dis:page<=1})}${nums.join('')}${b(page+1,'›',{dis:page>=pages})}</div>${info}`;
+}
+function listGo(p){ listPage=p; renderList(); window.scrollTo({top:0,behavior:'smooth'}); }
+function safetyGo(p){ safetyPage=p; renderSafety(); window.scrollTo({top:0,behavior:'smooth'}); }
 /* safety outcome (req #3): approved · not_cardinal (ไม่เข้าข่าย PSIF Cardinal rules) · duplicate (ซ้ำ) · rejected (legacy) · pending
    legacy imported rows are stored as safety_result='rejected' with the reason in safety_note,
    so fall back to reading the note to recover the specific outcome. */
@@ -1032,9 +1099,9 @@ function renderList(){
   if(canAll){
     const depts=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))].sort();
     scopeEl.innerHTML=`<div class="row" style="gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
-      <button class="chip ${listScope==='mine'?'on':''}" onclick="listScope='mine';renderList()">🙋 ของฉัน</button>
-      <button class="chip ${listScope==='all'?'on':''}" onclick="listScope='all';renderList()">📋 ทั้งหมด</button>
-      <select class="inp btn-sm" style="width:auto;padding:8px 10px" onchange="if(this.value){listScope=this.value;renderList()}">
+      <button class="chip ${listScope==='mine'?'on':''}" onclick="listScope='mine';listPage=1;renderList()">🙋 ของฉัน</button>
+      <button class="chip ${listScope==='all'?'on':''}" onclick="listScope='all';listPage=1;renderList()">📋 ทั้งหมด</button>
+      <select class="inp btn-sm" style="width:auto;padding:8px 10px" onchange="if(this.value){listScope=this.value;listPage=1;renderList()}">
         <option value="">🏭 เลือกแผนก…</option>
         ${depts.map(d=>`<option value="${esc(d)}" ${listScope===d?'selected':''}>${esc(d)}</option>`).join('')}
       </select>
@@ -1048,13 +1115,16 @@ function renderList(){
   const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('listChips').innerHTML=chips.map(([k,l])=>{
     const n=k==='all'?base.length:base.filter(i=>stageOf(i)===k).length;
-    return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';renderList()">${l} (${n})</button>`;
+    return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
   }).join('');
   const q=norm($('listSearch').value);
   let arr=base;
   if(listFilter!=='all') arr=arr.filter(i=>stageOf(i)===listFilter);
   if(q) arr=arr.filter(i=>norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')).includes(q));
-  $('listBody').innerHTML = arr.length? arr.map(cardHtml).join('') :
+  // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
+  const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(listPage>pages) listPage=pages; if(listPage<1) listPage=1;
+  const pageArr=arr.slice((listPage-1)*PAGE_SIZE, listPage*PAGE_SIZE);
+  $('listBody').innerHTML = arr.length? pageArr.map(cardHtml).join('')+pagerHtml(arr.length,listPage,PAGE_SIZE,'listGo') :
     `<div class="empty"><span class="ic">📭</span>${listScope==='mine'?'คุณยังไม่มีรายการ — แตะ ✏️ เพื่อบันทึก':'ไม่มีรายการ'}</div>`;
 }
 /* before/after thumbnails — both always visible, side by side (req #5) */
@@ -1218,23 +1288,19 @@ function renderSafety(){
   const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('safetyChips').innerHTML=chips.map(([k,l])=>{
     const n=k==='recorded'?state.items.filter(i=>i.status==='recorded').length:state.items.filter(i=>safetyKind(i)===k).length;
-    return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';renderSafety()">${l} (${n})</button>`;
+    return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';safetyPage=1;renderSafety()">${l} (${n})</button>`;
   }).join('');
   let arr = safetyFilter==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>safetyKind(i)===safetyFilter);
-  $('safetyBody').innerHTML = arr.length? arr.map(cardHtml).join('') : `<div class="empty"><span class="ic">✅</span>ไม่มีรายการ</div>`;
+  // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
+  const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(safetyPage>pages) safetyPage=pages; if(safetyPage<1) safetyPage=1;
+  const pageArr=arr.slice((safetyPage-1)*PAGE_SIZE, safetyPage*PAGE_SIZE);
+  $('safetyBody').innerHTML = arr.length? pageArr.map(cardHtml).join('')+pagerHtml(arr.length,safetyPage,PAGE_SIZE,'safetyGo') : `<div class="empty"><span class="ic">✅</span>ไม่มีรายการ</div>`;
 }
 
 /* ====================================================================
- *  REPORTS
+ *  PERSON SUMMARY (ใช้คำนวณโบนัส + ส่งออก CSV — req #2: ไม่มีหน้ารายงานแล้ว)
  * ==================================================================== */
-let repTab='person';
-function repYearVal(){ return +($('repYear').value||yr()); }
 function targetFor(y){ const t=state.targets.find(x=>x.year==y); return t?t.per_person_target:6; }
-function renderReport(){
-  $('repChips').innerHTML=[['person','รายคน'],['overview','ภาพรวม']].map(([k,l])=>
-    `<button class="chip ${repTab===k?'on':''}" onclick="repTab='${k}';renderReport()">${l}</button>`).join('');
-  repTab==='person'?renderRepPerson():renderRepOverview();
-}
 /* เป้าหมายใหม่รายคน/ปี: PSIF(Con) 2 · Near miss 2 · PSIF(Behavior) 2 (รวม 6)
    CAT_KEYS = ค่าที่เก็บใน DB, เรียงตามลำดับที่ต้องการแสดง (req #4) */
 const CAT_TARGET=2;
@@ -1250,75 +1316,6 @@ function computePerson(y){
     if(m.cats[r.category]!=null) m.cats[r.category]++;
   });
   return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=bonusFromCats(m.cats);return m;}).sort((a,b)=>b.bonus-a.bonus||b.submitted-a.submitted||b.done-a.done)};
-}
-let repSearch='';
-let _repPeople=[], _repYear=null;
-function repPersonRows(){
-  const q=norm(repSearch);
-  const list=q? _repPeople.filter(p=>norm((p.name||'')+' '+(p.id||'')+' '+(p.vsm||'')).includes(q)) : _repPeople;
-  const cell=v=>`<td class="num" style="color:${v>=CAT_TARGET?'var(--green)':'var(--muted)'};font-weight:${v>=CAT_TARGET?700:400}">${v}/${CAT_TARGET}</td>`;
-  return list.map(p=>`<tr onclick="personDetail('${esc(p.id)}',${_repYear})" style="cursor:pointer">
-    <td>${esc(p.name)}<div class="sub">${esc(p.id)}${p.vsm?' · '+esc(p.vsm):''}</div></td>
-    ${CAT_KEYS.map(k=>cell(p.cats[k])).join('')}
-    <td class="num"><b>${p.submitted}</b></td>
-    <td class="num" style="color:var(--green)">${p.done}</td>
-    <td class="num"><b style="color:${p.bonus?'var(--green)':'var(--muted2)'}">${p.bonus?p.bonus+'%':'-'}</b></td></tr>`).join('')
-    ||'<tr><td colspan="7" class="empty">ไม่พบพนักงานที่ค้นหา</td></tr>';
-}
-function updateRepRows(){ const el=$('repRows'); if(el) el.innerHTML=repPersonRows(); }
-function renderRepPerson(){
-  const y=repYearVal(); const {target,people}=computePerson(y);
-  _repPeople=people; _repYear=y;
-  $('repBody').innerHTML=`
-    <div class="card"><div class="sub">🎯 เป้าหมายรายคน/ปี: <b style="color:var(--blue)">PSIF (Con) ${CAT_TARGET}</b> · <b style="color:var(--orange)">Near miss ${CAT_TARGET}</b> · <b style="color:var(--purple)">PSIF (Behavior) ${CAT_TARGET}</b> (รวม ${target} เรื่อง)<br>${BONUS_RULE_TXT}</div></div>
-    <input class="inp" id="repSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(repSearch)}" oninput="repSearch=this.value;updateRepRows()" style="margin-bottom:10px">
-    <div class="card scroll-x"><table class="tbl">
-      <thead><tr><th>พนักงาน</th>${CAT_KEYS.map(k=>`<th class="num">${esc(catLabel(k))}</th>`).join('')}<th class="num">รวมส่ง</th><th class="num">เสร็จ</th><th class="num">โบนัส</th></tr></thead>
-      <tbody id="repRows">${repPersonRows()}</tbody>
-    </table></div>
-    <button class="btn btn-line btn-block" onclick="exportPersonCSV(${y})">⬇️ ส่งออก CSV</button>`;
-}
-function personDetail(id,y){
-  const items=state.items.filter(i=>i.reporter_id===id&&i.year==y);
-  const emp=state.employees.find(e=>e.id===id);
-  openModal('รายงาน: '+esc(emp?emp.name:id), items.length?items.map(it=>`
-    <div class="item" onclick="closeModal();openItem(${it.id})">
-      <div class="row" style="justify-content:space-between"><div class="tt">${esc(it.title)}</div>${statusBadge(it)}</div>
-      <div class="mt"><span>🏷️ ${esc(catLabel(it.category))}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}</div>
-      ${(it.photos||[]).length?`<div class="thumbs">${it.photos.map(p=>`<img src="${photoSrc(p)}">`).join('')}</div>`:''}
-    </div>`).join(''):'<div class="empty">ยังไม่มีเรื่อง</div>');
-}
-function renderRepOverview(){
-  const y=repYearVal(); const items=state.items.filter(i=>i.year==y);
-  const total=items.length, done=items.filter(i=>i.status==='done').length;
-  const empCount=state.employees.filter(e=>e.active!==0).length||1;
-  const byVsm={}, catSub=newCatMap();
-  items.forEach(i=>{ const d=i.vsm||empVsm(i.reporter_id)||'-'; (byVsm[d]??={t:0,d:0}); byVsm[d].t++; if(i.status==='done')byVsm[d].d++;
-    if(catSub[i.category]!=null) catSub[i.category]++; });
-  const max=Math.max(1,...Object.values(byVsm).map(v=>v.t));
-  const catTarget=CAT_TARGET*empCount;
-  const catRow=k=>{ const a=catSub[k]; const pct=Math.round(a/catTarget*100);
-    return `<tr><td><b>${esc(catLabel(k))}</b></td><td class="num">${catTarget.toLocaleString()}</td><td class="num" style="color:var(--green)">${a.toLocaleString()}</td><td class="num">${pct}%</td></tr>`; };
-  $('repBody').innerHTML=`
-    <div class="grid g3" style="margin-bottom:12px">
-      <div class="stat blue"><div class="n">${total}</div><div class="l">ส่งแล้ว</div></div>
-      <div class="stat green"><div class="n">${done}</div><div class="l">เสร็จ</div></div>
-      <div class="stat orange"><div class="n">${total?Math.round(done/total*100):0}%</div><div class="l">% สำเร็จ</div></div>
-    </div>
-    <div class="card scroll-x"><h3>🏷️ แยกตามประเภท Safety (เทียบเป้าหมาย)</h3>
-      <div class="sub" style="margin-bottom:8px">เป้าหมาย = ${CAT_TARGET} เรื่อง/คน/ปี × ${empCount.toLocaleString()} คน</div>
-      <table class="tbl"><thead><tr><th>ประเภท</th><th class="num">เป้าหมาย</th><th class="num">ส่งแล้ว</th><th class="num">%</th></tr></thead>
-      <tbody>${CAT_KEYS.map(catRow).join('')}</tbody></table>
-    </div>
-    <div class="card"><h3>🏭 แยกตามหน่วยงาน</h3>
-      ${Object.entries(byVsm).sort((a,b)=>b[1].t-a[1].t).map(([k,v])=>barRow(k,v.t,max,`${v.d}/${v.t}`)).join('')||'<div class="sub">ไม่มีข้อมูล</div>'}
-    </div>
-    <button class="btn btn-line btn-block" onclick="exportAllCSV(${y})">⬇️ ส่งออกข้อมูลทั้งหมด CSV</button>`;
-}
-function barRow(label,val,max,suffix){
-  return `<div class="bar-row"><span class="lab" title="${esc(label)}">${esc(label)}</span>
-    <span class="bar-track"><span class="bar-fill" style="width:${Math.round(val/max*100)}%"></span></span>
-    <span class="val">${suffix||val}</span></div>`;
 }
 
 /* ====================================================================
@@ -1349,36 +1346,66 @@ function dashTargetTable(title,col1,rows){
     <table class="tbl"><thead><tr><th>${esc(col1)}</th><th class="num">Target</th><th class="num">ทำได้</th><th class="num">%</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td class="num">${(r.target||0).toLocaleString()}</td><td class="num" style="color:var(--green);font-weight:700">${(r.actual||0).toLocaleString()}</td><td class="num">${r.target?Math.round(r.actual/r.target*100):0}%</td></tr>`).join('')}</tbody></table></div>`;
 }
-/* สถานะงานเป็นกราฟแท่ง (req #7) — rows: [{label,val,color}] */
-function statusBarChart(rows,total){
+/* สถานะงานเป็นกราฟวงกลม/โดนัท (req #3) — rows: [{label,val,color}] */
+function statusDonut(rows,total){
   const t=Math.max(1,total);
-  return rows.map(r=>{ const v=r.val||0, pct=Math.round(v/t*100);
-    return `<div class="sbar">
-      <div class="sbar-top"><span class="sbar-lab"><i style="background:${r.color}"></i>${r.label}</span><span class="sbar-val"><b>${v.toLocaleString()}</b> · ${pct}%</span></div>
-      <div class="sbar-track"><span class="sbar-fill" style="width:${pct}%;background:${r.color}"></span></div>
-    </div>`; }).join('');
+  const R=54, C=2*Math.PI*R;
+  let off=0;
+  const segs=rows.filter(r=>(r.val||0)>0).map(r=>{
+    const len=(r.val/t)*C;
+    const s=`<circle cx="70" cy="70" r="${R}" fill="none" stroke-width="20" stroke-linecap="butt"
+      style="stroke:${r.color}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}"
+      stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"></circle>`;
+    off+=len; return s;
+  }).join('');
+  const ring=segs||`<circle cx="70" cy="70" r="${R}" fill="none" stroke-width="20" style="stroke:#E2E8F0"></circle>`;
+  const legend=rows.map(r=>{ const v=r.val||0;
+    return `<div class="lg-row"><span class="lg-sw" style="background:${r.color}"></span>
+      <span class="lg-nm">${r.label}</span><span class="lg-vl"><b>${v.toLocaleString()}</b> · ${Math.round(v/t*100)}%</span></div>`; }).join('');
+  return `<div class="donut-wrap">
+    <div class="donut"><svg viewBox="0 0 140 140" aria-hidden="true">${ring}</svg>
+      <div class="donut-c"><b>${total.toLocaleString()}</b><span>เรื่อง</span></div></div>
+    <div class="donut-lg">${legend}</div>
+  </div>`;
 }
-/* แยกแต่ละหน่วยงานเป็น 3 ประเภท พร้อม % (req #8) — entries: [[dept,{total,PSIF,'Near miss',Behavior}]] */
-function catBreakdown(entries){
-  return entries.map(([d,o])=>{
-    const t=Math.max(1,o.total);
-    const con=o['PSIF']||0, nm=o['Near miss']||0, beh=o['Behavior']||0;
-    const p=n=>Math.round(n/t*100);
-    return `<div class="dbrk">
-      <div class="dbrk-h"><b>${esc(d)}</b><span class="dbrk-t">${o.total.toLocaleString()} เรื่อง</span></div>
-      <div class="dbrk-bar">
-        ${con?`<span class="seg-con" style="width:${p(con)}%"></span>`:''}
-        ${nm?`<span class="seg-nm" style="width:${p(nm)}%"></span>`:''}
-        ${beh?`<span class="seg-beh" style="width:${p(beh)}%"></span>`:''}
-      </div>
-      <div class="dbrk-lg">
-        <span class="lg"><i class="d-con"></i>PSIF (Con) <b>${con}</b> · ${p(con)}%</span>
-        <span class="lg"><i class="d-nm"></i>Near miss <b>${nm}</b> · ${p(nm)}%</span>
-        <span class="lg"><i class="d-beh"></i>PSIF (Behavior) <b>${beh}</b> · ${p(beh)}%</span>
-      </div>
+/* แต่ละ VSM/หน่วยงาน = 3 แท่งแนวนอนเทียบ Target (req #3)
+   rows: [{dept, head, act:{PSIF,'Near miss',Behavior,total}}]  ·  target/ประเภท = CAT_TARGET × จำนวนคน */
+const TBAR_ORDER=[['PSIF','con','PSIF (Con)'],['Behavior','beh','PSIF (Behavior)'],['Near miss','nm','Near miss']];
+function deptTargetBars(rows){
+  return rows.map(r=>{
+    const tgt=CAT_TARGET*(r.head||0);
+    const bars=TBAR_ORDER.map(([key,cls,lbl])=>{
+      const a=r.act[key]||0;
+      const over=tgt>0 && a>tgt;
+      const pct=tgt>0 ? Math.min(100,Math.round(a/tgt*100)) : (a>0?100:0);
+      const fillCls=over?'over':cls;
+      const numTxt = tgt>0
+        ? (over ? `${a}/${tgt} <span class="ex">· เกิน</span>` : `${a}/${tgt}`)
+        : `${a}`;
+      return `<div class="tbar">
+        <span class="tbar-cap">${lbl}</span>
+        <span class="tbar-track"><span class="tbar-fill ${fillCls}" style="width:${pct}%"></span></span>
+        <span class="tbar-num ${over?'over':''}">${numTxt}</span>
+      </div>`;
+    }).join('');
+    const headTxt = r.head?`${r.head} คน · เป้า ${tgt}/ประเภท`:`${r.act.total} เรื่อง`;
+    return `<div class="vgroup">
+      <div class="vgroup-h"><b>${esc(r.dept)}</b><span class="vgroup-s">${headTxt}</span></div>
+      ${bars}
     </div>`;
   }).join('');
 }
+/* รวมข้อมูลรายหน่วยงาน: จำนวนคน (headcount) + จำนวนเรื่องต่อประเภท */
+function deptTargetData(items){
+  const head={};
+  state.employees.filter(e=>e.active!==0).forEach(e=>{ const d=(e.vsm||'').trim()||'(ไม่ระบุ)'; head[d]=(head[d]||0)+1; });
+  const act={};
+  items.forEach(i=>{ const d=(i.vsm||empVsm(i.reporter_id)||'(ไม่ระบุ)').trim();
+    const o=(act[d]??={total:0,'PSIF':0,'Near miss':0,'Behavior':0}); o.total++; if(o[i.category]!=null)o[i.category]++; });
+  const depts=[...new Set([...Object.keys(head),...Object.keys(act)])];
+  return depts.map(d=>({dept:d, head:head[d]||0, act:act[d]||{total:0,'PSIF':0,'Near miss':0,'Behavior':0}}));
+}
+function vsmNum(s){ const m=String(s).match(/\d+/); return m?+m[0]:9999; }
 
 let dashMine=false;
 function renderDash(){
@@ -1407,15 +1434,13 @@ function renderDash(){
   const catSub=newCatMap(); items.forEach(i=>{ if(catSub[i.category]!=null)catSub[i.category]++; });
   const catTarget=CAT_TARGET*empCount;
 
-  // แยกตามหน่วยงาน แยกเป็น 3 ประเภท (req #8) — เดา vsm จากรหัสพนักงานถ้าเรื่องไม่มี (ลด "ไม่ระบุ", req #2)
-  const deptCat={};
-  items.forEach(i=>{ const d=i.vsm||empVsm(i.reporter_id)||'(ไม่ระบุ)';
-    const o=(deptCat[d]??={total:0,'PSIF':0,'Near miss':0,'Behavior':0});
-    o.total++; if(o[i.category]!=null)o[i.category]++; });
-  const isVsm=d=>/^vsm/i.test(d);
-  const dEntries=Object.entries(deptCat).sort((a,b)=>b[1].total-a[1].total);
-  const vsmEntries=dEntries.filter(([d])=>isVsm(d));
-  const deptEntries=dEntries.filter(([d])=>!isVsm(d));
+  // แยกตามหน่วยงาน แยกเป็น 3 ประเภทเทียบ Target (req #3) — จำนวนคนจากทะเบียนพนักงาน
+  const deptRows=deptTargetData(items);
+  const isVsm=d=>/^\s*vsm/i.test(d);
+  // VSM เรียง VSM1 → VSM2 → VSM3 → VSM4 (req #3)
+  const vsmRows=deptRows.filter(r=>isVsm(r.dept)).sort((a,b)=>vsmNum(a.dept)-vsmNum(b.dept));
+  // หน่วยงานอื่น เรียงตามจำนวนเรื่องมาก→น้อย (ซ่อนหน่วยงานที่ไม่มีทั้งคนและเรื่อง)
+  const deptEntries=deptRows.filter(r=>!isVsm(r.dept) && (r.head>0||r.act.total>0)).sort((a,b)=>b.act.total-a.act.total);
 
   const hero=`<div class="card dash-hero">
     <div class="dh-title">🏭 TENNECO Chonburi Plant · ปี ${y}</div>
@@ -1431,15 +1456,16 @@ function renderDash(){
   const monthCard=`<div class="card"><h3>📅 ส่งรายเดือน — ปี ${y}</h3>${monthChart(months,plantTarget/12)}</div>`;
   const catCard=dashTargetTable('🏷️ ประเภทของจุดเสี่ยงหรืออันตราย (PSIF)','ประเภท',
     CAT_KEYS.map(k=>({label:catLabel(k),target:catTarget,actual:catSub[k]})));
-  const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>${statusBarChart([
+  const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>${statusDonut([
       {label:'รอ Safety',   val:c.recorded,   color:'var(--blue)'},
       {label:'Safety แล้ว', val:c.safety,     color:'var(--purple)'},
       {label:'กำลังทำ',      val:c.inprogress, color:'var(--amber)'},
       {label:'เสร็จ',        val:c.done,       color:'var(--green)'},
       {label:'ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)', val:notPassed, color:'var(--red)'},
     ],total)}</div>`;
-  const vsmCard=vsmEntries.length?`<div class="card"><h3>🏭 VSM — แยกตามประเภท</h3><div class="sub" style="margin-bottom:2px">สัดส่วน PSIF (Con) · Near miss · PSIF (Behavior)</div>${catBreakdown(vsmEntries)}</div>`:'';
-  const deptCard=deptEntries.length?`<div class="card"><h3>🗂️ หน่วยงาน — แยกตามประเภท</h3><div class="sub" style="margin-bottom:2px">สัดส่วน PSIF (Con) · Near miss · PSIF (Behavior)</div>${catBreakdown(deptEntries)}</div>`:'';
+  const tgtHint='<div class="sub" style="margin-bottom:6px">แต่ละแท่งเทียบ Target (2 เรื่อง/คน/ปี) — เต็ม = ครบเป้า · <span style="color:var(--red);font-weight:700">แดง = เกินเป้าแล้ว</span></div>';
+  const vsmCard=vsmRows.length?`<div class="card"><h3>🏭 VSM — แยกตามประเภท</h3>${tgtHint}${deptTargetBars(vsmRows)}</div>`:'';
+  const deptCard=deptEntries.length?`<div class="card"><h3>🗂️ หน่วยงาน — แยกตามประเภท</h3>${tgtHint}${deptTargetBars(deptEntries)}</div>`:'';
 
   $('dashBody').innerHTML = dashWide
     ? hero + monthCard + `<div class="dash-grid cols2">${catCard}${statusCard}</div><div class="dash-grid cols2">${vsmCard}${deptCard}</div>`
@@ -1482,15 +1508,25 @@ function empRows(){                                  // ตารางพนั
 function updateEmpRows(){ const el=$('empRows'); if(el) el.innerHTML=empRows(); }
 function renderSettings(){
   $('apiUrl').value=API;
+  // ปุ่มดึงข้อมูลเป็น Excel/CSV — Safety & Admin (req #2: ย้ายจากเมนูรายงานมาไว้ในตั้งค่า)
+  const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
+  const yearOpts=years.map(yy=>`<option value="${yy}">ปี ${yy}</option>`).join('');
+  const exportCard=isSafety()?`<div class="card"><h3>📤 ดึงข้อมูลเป็น Excel</h3>
+      <div class="sub" style="margin-bottom:8px">ส่งออกข้อมูล PSIF เป็นไฟล์ .csv (เปิดใน Excel ได้ทันที)</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <select class="inp btn-sm" id="expYear" style="width:auto;padding:8px 10px">${yearOpts}</select>
+        <button class="btn btn-blue btn-sm" onclick="exportAllCSV(+$('expYear').value)">⬇️ ข้อมูลทั้งหมด</button>
+        <button class="btn btn-line btn-sm" onclick="exportPersonCSV(+$('expYear').value)">⬇️ สรุปรายคน (โบนัส)</button>
+      </div></div>`:'';
   if(!isAdmin()){
-    $('adminArea').innerHTML=`<div class="card"><h3>🔐 ส่วนผู้ดูแลระบบ</h3>
+    $('adminArea').innerHTML=exportCard+`<div class="card"><h3>🔐 ส่วนผู้ดูแลระบบ</h3>
       <div class="sub" style="margin-bottom:8px">จัดการพนักงาน พื้นที่ ประเภท เป้าหมาย และเปิดดำเนินการ</div>
       <button class="btn btn-blue btn-sm" onclick="if(requireAdmin())renderSettings()">🔓 ปลดล็อก Admin</button></div>`;
     return;
   }
   const y=yr();
   const vsms=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))];
-  $('adminArea').innerHTML=`
+  $('adminArea').innerHTML=exportCard+`
     <div class="card"><h3>📥 นำเข้าข้อมูลจาก Excel (เฉพาะ Admin)</h3>
       <div class="sub" style="margin-bottom:8px">คัดลอกทั้งตารางจาก Excel แล้ววางด้านล่าง (ย้ายข้อมูลจากที่อื่นเข้าระบบนี้) — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
       <div class="note" style="margin-bottom:8px">1) วันที่ · 2) รหัสพนักงาน · 3) ประเภทเรื่อง · 4) เรื่อง · 5) ข้อเสนอแนะการแก้ไข · 6) การอนุมัติจาก Safety · 7) การดำเนินการ · 8) หมายเลข PSIF · 9) สถานที่/เครื่องจักร<br>
@@ -1760,7 +1796,7 @@ function exportPersonCSV(y){
 /* ---------------- shared refresh ---------------- */
 function refreshAll(){ const active=document.querySelector('.pane.active'); fillStaticUI();
   renderDash(); if(active){const id=active.id.replace('pane-','');
-    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='report')renderReport(); if(id==='settings')renderSettings();} }
+    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='settings')renderSettings();} }
 
 /* ---------------- modal ---------------- */
 function openModal(t,h){ $('modalTt').textContent=t; $('modalBd').innerHTML=h; $('modalBg').classList.add('open'); }
