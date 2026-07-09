@@ -1412,10 +1412,10 @@ function deptTargetBars(rows){
       const numTxt=tgt>0 ? `${a}/${tgt}${over?` <span class="ex">+${a-tgt}</span>`:''}` : `${a}`;
       return `<div class="tbar">
         <span class="tbar-cap">${lbl}</span>
-        <span class="tbar-track">
-          <span class="tbar-fill ${met?'ok':'lo'}" style="width:${pct}%"></span>
-          ${tick!=null?`<span class="tbar-tick" style="left:${tick}%"></span>`:''}
-        </span>
+        <div class="tbar-track">
+          <div class="tbar-fill ${met?'ok':'lo'}" style="width:${pct}%;height:100%"></div>
+          ${tick!=null?`<div class="tbar-tick" style="left:${tick}%"></div>`:''}
+        </div>
         <span class="tbar-num ${over?'over':''}">${numTxt}</span>
       </div>`;
     }).join('');
@@ -1515,7 +1515,7 @@ function renderMyDash(y){
   const cat=newCatMap(); mine.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
   const done=mine.filter(i=>i.status==='done').length, bonus=bonusFromCats(cat);
   const catBar=k=>{ const v=cat[k],ok=v>=CAT_TARGET;
-    return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><span class="track"><span class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%"></span></span><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
+    return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><div class="track"><div class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%;height:100%"></div></div><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
   $('dashBody').innerHTML=`
     <div class="card"><h3>🙋 สรุปของฉัน — ${esc(CURRENT_USER.name)} (${esc(CURRENT_USER.id)})</h3>
