@@ -331,7 +331,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .mini-tgt{display:flex;align-items:center;gap:10px;margin:9px 0}
 .mini-tgt .cap{width:96px;flex-shrink:0;font-weight:600;font-size:13px}
 .mini-tgt .track{flex:1;height:16px;background:#F1F5F9;border-radius:6px;overflow:hidden}
-.mini-tgt .fill{height:100%;border-radius:6px;transition:width .5s;background:linear-gradient(90deg,var(--blue),var(--steel))}
+.mini-tgt .fill{display:block;height:100%;border-radius:6px;transition:width .5s;background:linear-gradient(90deg,var(--blue),var(--steel))}
 .mini-tgt .fill.ok{background:linear-gradient(90deg,#34d399,var(--green))}
 .mini-tgt .num{width:52px;text-align:right;font-weight:700;font-size:13px}
 
@@ -398,20 +398,48 @@ label.fl{font-weight:600;letter-spacing:.2px}
 /* ---------- target bars per VSM/หน่วยงาน (req: กราฟแท่งแนวนอนเทียบ Target) ---------- */
 .vgroup{padding:12px 0;border-bottom:1px solid var(--border)}
 .vgroup:last-child{border-bottom:0;padding-bottom:2px}
-.vgroup-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:9px}
+.vgroup-h{display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap}
 .vgroup-h b{font-size:14.5px;color:var(--navy)}
+.vgroup-h .vgroup-s{margin-left:auto}
 .vgroup-s{font-size:11.5px;color:var(--muted);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
 .tbar{display:flex;align-items:center;gap:9px;margin:7px 0}
 .tbar-cap{width:108px;flex-shrink:0;font-size:12.5px;font-weight:600;color:var(--text)}
 .tbar-track{position:relative;flex:1;height:16px;background:#EEF2F8;border-radius:8px;overflow:hidden}
-.tbar-fill{height:100%;border-radius:8px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
-.tbar-fill.con{background:linear-gradient(90deg,var(--blue),var(--navy))}
-.tbar-fill.beh{background:linear-gradient(90deg,#a78bfa,var(--purple))}
-.tbar-fill.nm{background:linear-gradient(90deg,#fbbf24,var(--amber))}
-.tbar-fill.over{background:linear-gradient(90deg,#f87171,var(--red))}
+.tbar-fill{display:block;height:100%;border-radius:8px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+/* สีตามความคืบหน้า (สไตล์เดียวกับกราฟรายเดือน): ฟ้า = ยังไม่ถึงเป้า · เขียว = ครบ/เกินเป้า */
+.tbar-fill.lo{background:linear-gradient(90deg,#60a5fa,var(--blue))}
+.tbar-fill.ok{background:linear-gradient(90deg,#34d399,var(--green))}
+/* เส้นประเหลือง = ตำแหน่งเป้า (แสดงเมื่อทำเกินเป้า แท่งเลยจุดเป้าไปแล้ว) */
+.tbar-tick{position:absolute;top:0;bottom:0;width:3px;border-radius:2px;
+  background:repeating-linear-gradient(180deg,var(--amber) 0 3px,rgba(255,255,255,.95) 3px 5px);
+  box-shadow:0 0 0 .5px rgba(255,255,255,.8)}
 .tbar-num{width:96px;text-align:right;font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .tbar-num.over{color:var(--red)}
 .tbar-num .ex{font-weight:800}
+/* legend swatches ใต้หัวข้อการ์ด */
+.tlg .sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px}
+.tlg .sw.lo{background:linear-gradient(90deg,#60a5fa,var(--blue))}
+.tlg .sw.ok{background:linear-gradient(90deg,#34d399,var(--green))}
+
+/* ---------- team drill-down (req: TL/Manager กดดูรายคนของ VSM/แผนก) ---------- */
+.drill{border:1.5px solid var(--blue-soft);background:var(--blue-light);color:var(--blue);
+  font-weight:700;font-size:12px;padding:7px 12px;border-radius:999px;transition:.12s;flex:0 0 auto;line-height:1.2}
+.drill:active{transform:scale(.95);background:var(--blue-soft)}
+.team-tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.team-tools input{flex:1;min-width:150px}
+.team-tools select{width:auto;flex:0 0 auto}
+.team-sum{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px}
+.prow{background:#fff;border:1px solid var(--border);border-radius:13px;padding:11px 13px;margin-bottom:9px;box-shadow:var(--shadow)}
+.prow-h{display:flex;align-items:center;gap:8px}
+.prow-nm{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow-bar{height:8px;background:#F1F5F9;border-radius:4px;overflow:hidden;margin:8px 0 7px}
+.prow-bar span{display:block;height:100%;border-radius:4px;transition:width .4s}
+.prow-bar .lo{background:linear-gradient(90deg,#60a5fa,var(--blue))}
+.prow-bar .ok{background:linear-gradient(90deg,#34d399,var(--green))}
+.prow-meta{display:flex;flex-wrap:wrap;gap:5px 8px;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;align-items:center}
+.prow-meta b{color:var(--text)}
+.pcat{border:1px solid var(--border);background:var(--bg);padding:1px 7px;border-radius:6px;font-weight:600}
+.pcat.ok{background:var(--green-bg);border-color:var(--green-bd);color:var(--green)}
 
 /* ---------- pagination (req: แสดง 20 อันดับ + แบ่งหน้า) ---------- */
 .pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;margin:16px 0 4px}
@@ -422,8 +450,6 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .pg-dot{color:var(--muted2);padding:0 2px}
 .pg-info{font-size:11.5px;color:var(--muted);width:100%;text-align:center;margin-top:2px}
 
-/* ---------- bottom-nav spacer (keep FAB centred when nav items are hidden) ---------- */
-.navspacer{flex:1}
 </style>
 </head>
 <body>
@@ -873,10 +899,15 @@ async function doLogin(){
   LS.set('psif_user',CURRENT_USER);
   enterApp();
 }
+/* สิทธิ์ผู้ใช้ 5 ระดับ (req: เพิ่ม Team Leader / Manager)
+   user = พนักงานทั่วไป · teamleader = หัวหน้าทีม เห็นรายคนใน VSM ตัวเอง ·
+   manager = ผู้จัดการ เห็นรายคนในแผนกตัวเอง · safety/admin = เห็นทุกกลุ่ม */
+const ROLE_LABEL={user:'พนักงาน',teamleader:'Team Leader',manager:'Manager',safety:'Safety',admin:'Admin'};
+const roleLabel=r=>ROLE_LABEL[r]||r||'user';
 function enterApp(){
   $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
-  const roleTxt = CURRENT_USER.role==='admin'?' · Admin':CURRENT_USER.role==='safety'?' · Safety':'';
-  $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+roleTxt;
+  const roleTxt = (CURRENT_USER.role&&CURRENT_USER.role!=='user') ? ' · '+roleLabel(CURRENT_USER.role) : '';
+  $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+esc(roleTxt);
   renderNav(); fillStaticUI(); setPane('home');
   loadNotifs().catch(()=>{});
   clearInterval(_notifT); _notifT=setInterval(()=>loadNotifs().catch(()=>{}),60000);
@@ -891,20 +922,15 @@ function requireAdmin(){
   adminUnlocked=true; renderNav(); toast('🔓 ปลดล็อก Admin','green'); return true;
 }
 
-/* ---------------- bottom nav (req #1/#2: เมนูตามสิทธิ์ — user ไม่เห็น Safety/ตั้งค่า) ---------------- */
+/* ---------------- bottom nav (เมนูตามสิทธิ์ — user เห็น 3 เมนูจัดกึ่งกลางสวยงาม ไม่มีช่องว่าง) ---------------- */
 function navBtn(pane,ico,lbl,cls=''){
   return `<button data-pane="${pane}" class="${cls}" onclick="setPane('${pane}')"><span class="ico">${ico}</span><span class="lbl">${lbl}</span></button>`;
 }
 function renderNav(){
-  const sa=isSafety();
-  const right = sa
-    ? navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า')
-    : '<span class="navspacer"></span><span class="navspacer"></span>';
-  $('bnav').innerHTML =
-    navBtn('home','📊','แดชบอร์ด')+
-    navBtn('list','🗂️','ติดตาม')+
-    navBtn('create','✏️','บันทึก','fab')+
-    right;
+  $('bnav').innerHTML = isSafety()
+    ? navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
+      navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า')
+    : navBtn('home','📊','แดชบอร์ด')+navBtn('create','✏️','บันทึก','fab')+navBtn('list','🗂️','ติดตาม');
   const active=document.querySelector('.pane.active');
   const cur=active?active.id.replace('pane-',''):'home';
   document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===cur));
@@ -1369,28 +1395,34 @@ function statusDonut(rows,total){
   </div>`;
 }
 /* แต่ละ VSM/หน่วยงาน = 3 แท่งแนวนอนเทียบ Target (req #3)
-   rows: [{dept, head, act:{PSIF,'Near miss',Behavior,total}}]  ·  target/ประเภท = CAT_TARGET × จำนวนคน */
-const TBAR_ORDER=[['PSIF','con','PSIF (Con)'],['Behavior','beh','PSIF (Behavior)'],['Near miss','nm','Near miss']];
+   rows: [{dept, head, act:{PSIF,'Near miss',Behavior,total}}]  ·  target/ประเภท = CAT_TARGET × จำนวนคน
+   สีตามความคืบหน้า (req: แถบสีแบบกราฟรายเดือน): ฟ้า = ยังไม่ถึงเป้า · เขียว = ครบเป้า
+   ถ้าเกินเป้า แท่งยืดตามจำนวนจริง มีเส้นประเหลืองคั่นที่จุดเป้า + ตัวเลขแดง +n */
+const TBAR_ORDER=[['PSIF','PSIF (Con)'],['Behavior','PSIF (Behavior)'],['Near miss','Near miss']];
 function deptTargetBars(rows){
   return rows.map(r=>{
     const tgt=CAT_TARGET*(r.head||0);
-    const bars=TBAR_ORDER.map(([key,cls,lbl])=>{
+    const bars=TBAR_ORDER.map(([key,lbl])=>{
       const a=r.act[key]||0;
       const over=tgt>0 && a>tgt;
-      const pct=tgt>0 ? Math.min(100,Math.round(a/tgt*100)) : (a>0?100:0);
-      const fillCls=over?'over':cls;
-      const numTxt = tgt>0
-        ? (over ? `${a}/${tgt} <span class="ex">· เกิน</span>` : `${a}/${tgt}`)
-        : `${a}`;
+      const met=tgt>0 && a>=tgt;
+      const scale=Math.max(a,tgt,1);                 // เกินเป้า → แท่งเต็ม และเป้าถอยมาเป็นเส้นประ
+      const pct=Math.round(a/scale*100);
+      const tick=over?Math.round(tgt/scale*100):null;
+      const numTxt=tgt>0 ? `${a}/${tgt}${over?` <span class="ex">+${a-tgt}</span>`:''}` : `${a}`;
       return `<div class="tbar">
         <span class="tbar-cap">${lbl}</span>
-        <span class="tbar-track"><span class="tbar-fill ${fillCls}" style="width:${pct}%"></span></span>
+        <span class="tbar-track">
+          <span class="tbar-fill ${met?'ok':'lo'}" style="width:${pct}%"></span>
+          ${tick!=null?`<span class="tbar-tick" style="left:${tick}%"></span>`:''}
+        </span>
         <span class="tbar-num ${over?'over':''}">${numTxt}</span>
       </div>`;
     }).join('');
     const headTxt = r.head?`${r.head} คน · เป้า ${tgt}/ประเภท`:`${r.act.total} เรื่อง`;
+    const drill = canDrill(r.dept)?`<button class="drill" data-d="${esc(r.dept)}" onclick="openTeam(this.dataset.d)">👥 รายคน</button>`:'';
     return `<div class="vgroup">
-      <div class="vgroup-h"><b>${esc(r.dept)}</b><span class="vgroup-s">${headTxt}</span></div>
+      <div class="vgroup-h"><b>${esc(r.dept)}</b>${drill}<span class="vgroup-s">${headTxt}</span></div>
       ${bars}
     </div>`;
   }).join('');
@@ -1411,9 +1443,12 @@ let dashMine=false;
 function renderDash(){
   applyDashWidth();
   const y=+($('dashYear').value||yr());
+  // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
+  const teamChip=(['teamleader','manager'].includes(CURRENT_USER.role)&&myVsm())
+    ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
   $('dashScope').innerHTML=`
     <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">🏭 ทั้งโรงงาน</button>
-    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>`;
+    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}`;
   if(dashMine){ renderMyDash(y); return; }
 
   const items=state.items.filter(i=>i.year==y);
@@ -1463,7 +1498,9 @@ function renderDash(){
       {label:'เสร็จ',        val:c.done,       color:'var(--green)'},
       {label:'ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)', val:notPassed, color:'var(--red)'},
     ],total)}</div>`;
-  const tgtHint='<div class="sub" style="margin-bottom:6px">แต่ละแท่งเทียบ Target (2 เรื่อง/คน/ปี) — เต็ม = ครบเป้า · <span style="color:var(--red);font-weight:700">แดง = เกินเป้าแล้ว</span></div>';
+  const tgtHint=`<div class="sub tlg" style="margin-bottom:6px">แต่ละแท่งเทียบ Target (${CAT_TARGET} เรื่อง/คน/ปี) —
+    <i class="sw lo"></i> ยังไม่ถึงเป้า · <i class="sw ok"></i> ครบเป้า ·
+    <span style="color:var(--red);font-weight:700">+n = เกินเป้า</span> (เส้นประเหลือง = จุดเป้า)</div>`;
   const vsmCard=vsmRows.length?`<div class="card"><h3>🏭 VSM — แยกตามประเภท</h3>${tgtHint}${deptTargetBars(vsmRows)}</div>`:'';
   const deptCard=deptEntries.length?`<div class="card"><h3>🗂️ หน่วยงาน — แยกตามประเภท</h3>${tgtHint}${deptTargetBars(deptEntries)}</div>`:'';
 
@@ -1495,13 +1532,94 @@ function renderMyDash(y){
 }
 
 /* ====================================================================
+ *  TEAM DRILL-DOWN — กด VSM/แผนก บนแดชบอร์ดเพื่อดูรายคน (req: TL/Manager)
+ *  ใครส่งกี่เรื่อง · ปิดกี่เรื่อง · เหลือกี่เรื่อง — 20 คน/หน้า ค้นหา+เรียงได้
+ *  สิทธิ์: admin/safety เปิดได้ทุกกลุ่ม · teamleader/manager เฉพาะกลุ่มตัวเอง
+ * ==================================================================== */
+function myVsm(){ return CURRENT_USER ? (empVsm(CURRENT_USER.id)||CURRENT_USER.vsm||'').trim() : ''; }
+function canDrill(dept){
+  if(!CURRENT_USER) return false;
+  if(isSafety()) return true;                                            // admin + safety เข้าได้หมด
+  if(['teamleader','manager'].includes(CURRENT_USER.role)) return myVsm()===dept;
+  return false;
+}
+const CAT_SHORT={'PSIF':'Con','Behavior':'Beh','Near miss':'NM'};
+const PERSON_TARGET=CAT_TARGET*CAT_KEYS.length;   // 6 เรื่อง/คน/ปี (2 ต่อประเภท)
+let teamDept=null, teamYear=null, teamQ='', teamSort='left', teamPage=1;
+function teamPeople(){
+  const {people}=computePerson(teamYear);
+  const key=d=>(d||'').trim()||'(ไม่ระบุ)';
+  const group=people.filter(p=>key(p.vsm)===teamDept);
+  // เหลือ = ยังขาดอีกกี่เรื่องจึงครบเป้าทุกประเภท (นับตามประเภท 2/2/2 — ส่งเกินประเภทหนึ่งไม่ชดเชยอีกประเภท)
+  group.forEach(p=>{ p.left=CAT_KEYS.reduce((s,k)=>s+Math.max(0,CAT_TARGET-(p.cats[k]||0)),0); });
+  const q=norm(teamQ);
+  let arr=q? group.filter(p=>norm((p.name||'')+' '+(p.id||'')).includes(q)) : group.slice();
+  const by={
+    left:(a,b)=>b.left-a.left||a.submitted-b.submitted,
+    sub:(a,b)=>b.submitted-a.submitted,
+    done:(a,b)=>b.done-a.done,
+    name:(a,b)=>(a.name||'').localeCompare(b.name||'','th'),
+  }[teamSort];
+  if(by) arr.sort(by);
+  return {group,arr};
+}
+function personRow(p){
+  const got=PERSON_TARGET-p.left;
+  const pct=Math.round(got/PERSON_TARGET*100);
+  const ok=p.left===0;
+  const cats=CAT_KEYS.map(k=>{ const v=p.cats[k]||0;
+    return `<span class="pcat ${v>=CAT_TARGET?'ok':''}">${CAT_SHORT[k]} ${v}/${CAT_TARGET}</span>`; }).join('');
+  return `<div class="prow">
+    <div class="prow-h">
+      <div class="prow-nm"><b>${esc(p.name)}</b> <span class="sub">${esc(p.id)}</span></div>
+      <span class="badge ${ok?'b-green':'b-orange'}">${ok?'✓ ครบเป้า':'เหลือ '+p.left}</span>
+    </div>
+    <div class="prow-bar"><span class="${ok?'ok':'lo'}" style="width:${pct}%"></span></div>
+    <div class="prow-meta"><span>ส่ง <b>${p.submitted}</b></span><span>ปิด <b>${p.done}</b></span>${cats}</div>
+  </div>`;
+}
+function openTeam(dept){
+  if(!canDrill(dept)){ toast('เฉพาะหัวหน้าทีม/ผู้จัดการของกลุ่มนี้ หรือ Safety/Admin','orange'); return; }
+  teamDept=dept; teamYear=+($('dashYear').value||yr()); teamQ=''; teamSort='left'; teamPage=1;
+  openModal(`👥 ${dept} — รายคน (ปี ${teamYear})`,`
+    <div class="team-tools">
+      <input class="inp" placeholder="🔍 ค้นหาชื่อ / รหัสพนักงาน" oninput="teamQ=this.value;teamPage=1;renderTeamList()">
+      <select class="inp" onchange="teamSort=this.value;teamPage=1;renderTeamList()">
+        <option value="left">เรียง: เหลือมาก → น้อย</option>
+        <option value="sub">เรียง: ส่งมาก → น้อย</option>
+        <option value="done">เรียง: ปิดมาก → น้อย</option>
+        <option value="name">เรียง: ชื่อ ก → ฮ</option>
+      </select>
+    </div>
+    <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · “เหลือ” = ยังขาดอีกกี่เรื่องจึงครบทุกประเภท</div>
+    <div id="teamSum"></div>
+    <div id="teamList"></div>`);
+  renderTeamList();
+}
+function teamGo(p){ teamPage=p; renderTeamList(); const m=document.querySelector('.modal'); if(m)m.scrollTo({top:0,behavior:'smooth'}); }
+function renderTeamList(){
+  const {group,arr}=teamPeople();
+  const okN=group.filter(p=>p.left===0).length;
+  $('teamSum').innerHTML=`<div class="team-sum">
+    <span class="badge b-blue">ทั้งหมด ${group.length} คน</span>
+    <span class="badge b-green">✓ ครบเป้า ${okN} คน</span>
+    <span class="badge b-orange">ยังไม่ครบ ${group.length-okN} คน</span>
+  </div>`;
+  const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(teamPage>pages)teamPage=pages; if(teamPage<1)teamPage=1;
+  const page=arr.slice((teamPage-1)*PAGE_SIZE, teamPage*PAGE_SIZE);
+  $('teamList').innerHTML = arr.length
+    ? page.map(personRow).join('')+pagerHtml(arr.length,teamPage,PAGE_SIZE,'teamGo')
+    : `<div class="empty"><span class="ic">🔍</span>ไม่พบพนักงานที่ค้นหา</div>`;
+}
+
+/* ====================================================================
  *  SETTINGS / ADMIN
  * ==================================================================== */
 let empSearch='';
 function empRows(){                                  // ตารางพนักงาน + ค้นหา (req #6)
   const q=norm(empSearch);
   const list=q? state.employees.filter(e=>norm((e.name||'')+' '+(e.id||'')+' '+(e.vsm||'')).includes(q)) : state.employees;
-  return list.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(e.role||'user')}</td>
+  return list.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(roleLabel(e.role||'user'))}</td>
     <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`).join('')
     || `<tr><td colspan="5" class="empty">ไม่พบพนักงานที่ค้นหา “${esc(empSearch)}”</td></tr>`;
 }
@@ -1584,7 +1702,8 @@ function editEmp(id){
     <label class="fl">ชื่อ-สกุล</label><input class="inp" id="eName" value="${esc(e.name)}">
     <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="eVsm" value="${esc(e.vsm||'')}">
     <label class="fl">สิทธิ์</label><select class="inp" id="eRole">
-      ${['user','safety','admin'].map(r=>`<option ${e.role===r?'selected':''}>${r}</option>`).join('')}</select>
+      ${['user','teamleader','manager','safety','admin'].map(r=>`<option value="${r}" ${e.role===r?'selected':''}>${roleLabel(r)}${r==='user'?'':' ('+r+')'}</option>`).join('')}</select>
+    <div class="sub" style="margin-top:4px">Team Leader เห็นรายคนใน VSM ตัวเอง · Manager เห็นรายคนในแผนกตัวเอง (กดที่แดชบอร์ด)</div>
     <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>`);
 }
 async function saveEmp(){
