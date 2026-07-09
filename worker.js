@@ -227,6 +227,10 @@ function notifMessages(oldRow, b) {
   const msgs = [];
   if (b.safety_result === 'approved' && oldRow.safety_result !== 'approved')
     msgs.push(`✅ Safety อนุมัติเรื่อง "${t}"${b.safety_note ? ' — ' + b.safety_note : ''}`);
+  if (b.safety_result === 'not_cardinal' && oldRow.safety_result !== 'not_cardinal')
+    msgs.push(`⚠️ Safety: เรื่อง "${t}" ไม่เข้าข่าย PSIF Cardinal rules${b.safety_note ? ' — ' + b.safety_note : ''}`);
+  if (b.safety_result === 'duplicate' && oldRow.safety_result !== 'duplicate')
+    msgs.push(`🔁 Safety: เรื่อง "${t}" เป็นเรื่องซ้ำ${b.safety_note ? ' — ' + b.safety_note : ''}`);
   if (b.safety_result === 'rejected' && oldRow.safety_result !== 'rejected')
     msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${b.safety_note ? ' — ' + b.safety_note : ''}`);
   if (b.status === 'inprogress' && oldRow.status !== 'inprogress')

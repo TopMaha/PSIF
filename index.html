@@ -334,6 +334,51 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .mini-tgt .fill{height:100%;border-radius:6px;transition:width .5s;background:linear-gradient(90deg,var(--blue),var(--steel))}
 .mini-tgt .fill.ok{background:linear-gradient(90deg,#34d399,var(--green))}
 .mini-tgt .num{width:52px;text-align:right;font-weight:700;font-size:13px}
+
+/* before/after paired thumbnails on the tracker card (req #5) */
+.ba-thumbs{display:flex;gap:8px;margin-top:10px}
+.ba-thumbs .ba{position:relative;flex:1;min-width:0}
+.ba-thumbs .ba img{width:100%;height:88px;object-fit:cover;border-radius:11px;border:1px solid var(--border);box-shadow:var(--shadow);display:block}
+.ba-thumbs .ba .cap{position:absolute;top:6px;left:6px;font-size:10px;font-weight:800;color:#fff;padding:2px 7px;border-radius:999px;line-height:1.4}
+.ba-thumbs .ba .cap.b{background:rgba(11,42,107,.82)}
+.ba-thumbs .ba .cap.a{background:rgba(21,128,61,.9)}
+.ba-thumbs .ba .cap.pc{top:auto;bottom:6px;left:auto;right:6px;background:rgba(15,23,42,.72)}
+.ba-thumbs .ba .none{width:100%;height:88px;border-radius:11px;border:1px dashed var(--border);background:#F8FAFC;display:grid;place-items:center;color:var(--muted2);font-size:11.5px}
+@media(max-width:520px){.ba-thumbs .ba img,.ba-thumbs .ba .none{height:74px}}
+
+/* before/after side-by-side comparison in the detail modal (req #5) */
+.ba-compare{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.ba-compare .col .hd{font-size:12px;font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.ba-compare .col .hd.b{color:var(--navy)} .ba-compare .col .hd.a{color:var(--green)}
+.ba-compare .col img{width:100%;border-radius:11px;border:1px solid var(--border);margin-bottom:8px;box-shadow:var(--shadow)}
+.ba-compare .col .none{border:1px dashed var(--border);border-radius:11px;background:#F8FAFC;color:var(--muted2);font-size:12px;padding:22px 8px;text-align:center}
+
+/* status bar chart (req #7) */
+.sbar{margin:11px 0}
+.sbar-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;font-size:13px}
+.sbar-lab{font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px}
+.sbar-lab i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.sbar-val{font-weight:700;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sbar-val b{color:var(--text);font-size:14px}
+.sbar-track{height:14px;background:#F1F5F9;border-radius:7px;overflow:hidden}
+.sbar-fill{height:100%;border-radius:7px;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+
+/* per-department category breakdown (req #8) */
+.dbrk{padding:12px 0;border-bottom:1px solid var(--border)}
+.dbrk:last-child{border-bottom:0;padding-bottom:2px}
+.dbrk-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:7px}
+.dbrk-h b{font-size:14px;color:var(--navy)}
+.dbrk-t{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dbrk-bar{display:flex;height:15px;border-radius:7px;overflow:hidden;background:#F1F5F9}
+.dbrk-bar span{height:100%;transition:width .6s cubic-bezier(.2,.8,.2,1)}
+.seg-con{background:linear-gradient(90deg,var(--blue),var(--navy))}
+.seg-nm{background:linear-gradient(90deg,#fbbf24,var(--amber))}
+.seg-beh{background:linear-gradient(90deg,#a78bfa,var(--purple))}
+.dbrk-lg{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px}
+.dbrk-lg .lg{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+.dbrk-lg .lg b{color:var(--text)}
+.dbrk-lg .lg i{width:9px;height:9px;border-radius:2px;display:inline-block;flex:0 0 auto}
+.d-con{background:var(--blue)} .d-nm{background:var(--amber)} .d-beh{background:var(--purple)}
 </style>
 </head>
 <body>
@@ -511,12 +556,16 @@ const state = {
   employees: [], areas: [], categories: [], targets: [], issuances: [], items: [], notifications: [],
 };
 
-/* ---- PSIF types: fixed at exactly 3 (per requirement) ---- */
+/* ---- PSIF types: fixed at exactly 3 (per requirement) ----
+   `key` = value stored in DB (unchanged, so legacy data keeps counting)
+   `name` = display label · order = PSIF (Con) · Near miss · PSIF (Behavior) */
 const FIXED_CATS = [
-  {id:'psif',      name:'PSIF',      active:1},
-  {id:'near_miss', name:'Near miss', active:1},
-  {id:'behavior',  name:'Behavior',  active:1},
+  {id:'psif',      key:'PSIF',      name:'PSIF (Con)',      active:1},
+  {id:'near_miss', key:'Near miss', name:'Near miss',       active:1},
+  {id:'behavior',  key:'Behavior',  name:'PSIF (Behavior)', active:1},
 ];
+/* map a stored category value -> display label (tolerant of old/new strings) */
+function catLabel(v){ const c=FIXED_CATS.find(x=>x.key===v||x.name===v); return c?c.name:(v||'-'); }
 
 const STATUS = {
   recorded:  {label:'บันทึกเข้าระบบ', cls:'b-blue'},
@@ -525,7 +574,18 @@ const STATUS = {
   done:      {label:'เสร็จ', cls:'b-green'},
 };
 const STEPS = ['บันทึกเข้าระบบ','Safety อนุมัติ','กำลังดำเนินการ','เสร็จ'];
-const BONUS = d => d>=6?10 : d===5?7.5 : d===4?5 : 0;
+/* โบนัส (req #1): คิดจากจำนวนเรื่องต่อประเภท ต้องมี PSIF(Con) ≥2 เป็นพื้นฐาน
+   10%  = PSIF(Con) ≥2 · PSIF(Behavior) ≥2 · Near miss ≥2
+   7.5% = PSIF(Con) ≥2 · PSIF(Behavior) ≥2 · Near miss ≥1
+   5%   = PSIF(Con) ≥2 · Near miss ≥1 (Behavior ไม่ถึง 2) */
+function bonusFromCats(cats){
+  const con=cats['PSIF']||0, beh=cats['Behavior']||0, nm=cats['Near miss']||0;
+  if(con>=2 && beh>=2 && nm>=2) return 10;
+  if(con>=2 && beh>=2 && nm>=1) return 7.5;
+  if(con>=2 && nm>=1)           return 5;
+  return 0;
+}
+const BONUS_RULE_TXT='เงื่อนไขโบนัส: ต้องมี PSIF(Con) ≥2 · <b>10%</b> เมื่อ Behavior ≥2 &amp; Near miss ≥2 · <b>7.5%</b> เมื่อ Behavior ≥2 &amp; Near miss ≥1 · <b>5%</b> เมื่อ Near miss ≥1';
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -648,6 +708,8 @@ function empVsm(id){ const e=state.employees.find(x=>x.id===id); return e?(e.vsm
 function notifMessages(old,patch){ // mirrors worker.js
   const t=(old.title||'').slice(0,40); const msgs=[];
   if(patch.safety_result==='approved'&&old.safety_result!=='approved') msgs.push(`✅ Safety อนุมัติเรื่อง "${t}"${patch.safety_note?' — '+patch.safety_note:''}`);
+  if(patch.safety_result==='not_cardinal'&&old.safety_result!=='not_cardinal') msgs.push(`⚠️ Safety: เรื่อง "${t}" ไม่เข้าข่าย PSIF Cardinal rules${patch.safety_note?' — '+patch.safety_note:''}`);
+  if(patch.safety_result==='duplicate'&&old.safety_result!=='duplicate') msgs.push(`🔁 Safety: เรื่อง "${t}" เป็นเรื่องซ้ำ${patch.safety_note?' — '+patch.safety_note:''}`);
   if(patch.safety_result==='rejected'&&old.safety_result!=='rejected') msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${patch.safety_note?' — '+patch.safety_note:''}`);
   if(patch.status==='inprogress'&&old.status!=='inprogress') msgs.push(`🚀 เรื่อง "${t}" เริ่มดำเนินการแล้ว${patch.no?' (No.'+patch.no+')':''}`);
   if(patch.status==='done'&&old.status!=='done') msgs.push(`🏁 เรื่อง "${t}" ปิดงานเรียบร้อยแล้ว`);
@@ -806,7 +868,7 @@ function requireAdmin(){
 /* ---------------- static UI fills ---------------- */
 function fillStaticUI(){
   // category select
-  $('cCat').innerHTML='<option value="">— เลือกประเภท —</option>'+state.categories.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  $('cCat').innerHTML='<option value="">— เลือกประเภท —</option>'+state.categories.map(c=>`<option value="${esc(c.key||c.name)}">${esc(c.name)}</option>`).join('');
   // datalists
   const vsms=[...new Set(state.employees.map(e=>e.vsm).concat(state.areas.map(a=>a.vsm)).filter(Boolean))];
   $('vsmList').innerHTML=vsms.map(v=>`<option value="${esc(v)}">`).join('');
@@ -917,16 +979,39 @@ function confirmDupe(dupes){
  * ==================================================================== */
 let listFilter='all';
 let listScope='mine'; // user: 'mine' เท่านั้น · admin/safety: 'mine' | 'all' | ชื่อแผนก
+/* safety outcome (req #3): approved · not_cardinal (ไม่เข้าข่าย PSIF Cardinal rules) · duplicate (ซ้ำ) · rejected (legacy) · pending
+   legacy imported rows are stored as safety_result='rejected' with the reason in safety_note,
+   so fall back to reading the note to recover the specific outcome. */
+const SAFETY_KIND={
+  approved:    {label:'อนุมัติ',                        cls:'b-green'},
+  not_cardinal:{label:'ไม่เข้าข่าย PSIF Cardinal rules', cls:'b-orange'},
+  duplicate:   {label:'ซ้ำ',                            cls:'b-purple'},
+  rejected:    {label:'ไม่อนุมัติ',                      cls:'b-red'},
+};
+const REJECT_KINDS=['not_cardinal','duplicate','rejected'];
+function safetyKind(it){
+  const r=it.safety_result||'';
+  if(r==='approved'||r==='not_cardinal'||r==='duplicate') return r;
+  if(r==='rejected'){
+    const n=it.safety_note||'';
+    if(/ซ้ำ|ซํ้า|duplicate/i.test(n)) return 'duplicate';
+    if(/ไม่เข้าข่าย|cardinal/i.test(n)) return 'not_cardinal';
+    return 'rejected';
+  }
+  return 'pending';
+}
+function isRejected(it){ return REJECT_KINDS.includes(safetyKind(it)); }
 function stageOf(it){
-  if(it.safety_result==='rejected') return 'rejected';
+  const k=safetyKind(it);
+  if(REJECT_KINDS.includes(k)) return k;   // duplicate / not_cardinal / rejected
   return it.status;
 }
 function stepIndex(it){ // 0..4 completed steps
-  if(it.safety_result==='rejected') return 1;
+  if(isRejected(it)) return 1;
   return {recorded:1,safety:2,inprogress:3,done:4}[it.status]||0;
 }
 function renderStepper(it){
-  const rej=it.safety_result==='rejected'; const ci=stepIndex(it);
+  const rej=isRejected(it); const ci=stepIndex(it);
   return `<div class="stepper">`+STEPS.map((s,i)=>{
     const n=i+1; let cls=''; if(rej&&i===1)cls='rej'; else if(n<ci)cls='done'; else if(n===ci)cls=(it.status==='done')?'done':'cur';
     const ic = rej&&i===1?'✕':(n<=ci?(n<ci||it.status==='done'?'✓':n):n);
@@ -934,8 +1019,9 @@ function renderStepper(it){
   }).join('')+`</div>`;
 }
 function statusBadge(it){
-  if(it.safety_result==='rejected') return '<span class="badge b-red">ไม่อนุมัติ</span>';
-  if(it.status==='safety'&&it.safety_result==='approved') return '<span class="badge b-purple" style="background:var(--purple-bg);color:var(--purple);border-color:#DDD6FE">Safety อนุมัติ</span>';
+  const k=safetyKind(it);
+  if(REJECT_KINDS.includes(k)){ const s=SAFETY_KIND[k]; return `<span class="badge ${s.cls}">${s.label}</span>`; }
+  if(it.status==='safety'&&k==='approved') return '<span class="badge b-purple" style="background:var(--purple-bg);color:var(--purple);border-color:#DDD6FE">Safety อนุมัติ</span>';
   const s=STATUS[it.status]||STATUS.recorded; return `<span class="badge ${s.cls}">${s.label}</span>`;
 }
 function renderList(){
@@ -959,7 +1045,7 @@ function renderList(){
   if(listScope==='mine') base=base.filter(i=>i.reporter_id===CURRENT_USER.id);
   else if(listScope!=='all') base=base.filter(i=>i.vsm===listScope);
   // status chips (นับจาก base)
-  const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['rejected','ไม่อนุมัติ']];
+  const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('listChips').innerHTML=chips.map(([k,l])=>{
     const n=k==='all'?base.length:base.filter(i=>stageOf(i)===k).length;
     return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';renderList()">${l} (${n})</button>`;
@@ -971,24 +1057,29 @@ function renderList(){
   $('listBody').innerHTML = arr.length? arr.map(cardHtml).join('') :
     `<div class="empty"><span class="ic">📭</span>${listScope==='mine'?'คุณยังไม่มีรายการ — แตะ ✏️ เพื่อบันทึก':'ไม่มีรายการ'}</div>`;
 }
+/* before/after thumbnails — both always visible, side by side (req #5) */
+function baThumbs(it){
+  const ph=it.photos||[];
+  const before=ph.filter(p=>p.kind==='before');
+  const after =ph.filter(p=>p.kind==='after');
+  if(!before.length && !after.length) return '';
+  const cell=(arr,cls,cap)=> arr.length
+    ? `<div class="ba"><img src="${photoSrc(arr[0])}" loading="lazy"><span class="cap ${cls}">${cap}</span>${arr.length>1?`<span class="cap pc">+${arr.length-1}</span>`:''}</div>`
+    : `<div class="ba"><div class="none">ยังไม่มีรูป${cap}</div></div>`;
+  return `<div class="ba-thumbs">${cell(before,'b','ก่อน')}${cell(after,'a','หลัง')}</div>`;
+}
 function cardHtml(it){
-  const ph=(it.photos||[]);
-  const thumb=ph.length?`<div class="itemphoto"><img src="${photoSrc(ph[0])}" loading="lazy">${ph.length>1?`<span class="pcount">+${ph.length-1}</span>`:''}</div>`:'';
   return `<div class="item" onclick="openItem(${it.id})">
-    <div class="itemrow">
-      <div class="itemmain">
-        <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}</div>
-        <div class="tt" style="margin-top:7px">${esc(it.title)}</div>
-        <div class="mt">
-          <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
-          <span>🏷️ ${esc(it.category||'-')}</span>
-          ${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}
-          ${it.vsm?`<span>🏭 ${esc(it.vsm)}</span>`:''}
-        </div>
-        ${renderStepper(it)}
-      </div>
-      ${thumb}
+    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}</div>
+    <div class="tt" style="margin-top:7px">${esc(it.title)}</div>
+    <div class="mt">
+      <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
+      <span>🏷️ ${esc(catLabel(it.category))}</span>
+      ${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}
+      ${it.vsm?`<span>🏭 ${esc(it.vsm)}</span>`:''}
     </div>
+    ${renderStepper(it)}
+    ${baThumbs(it)}
   </div>`;
 }
 
@@ -1001,8 +1092,10 @@ function openItem(id){
   const canIssueNo = isAdmin() && it.status==='safety' && it.safety_result==='approved';
   const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || isAdmin());
   let actions='';
-  if(canSafety) actions+=`<button class="btn btn-green btn-block" onclick="safetyAct(${id},'approved')">✅ Safety อนุมัติ</button>
-    <button class="btn btn-red btn-block" style="margin-top:8px" onclick="safetyAct(${id},'rejected')">❌ ไม่อนุมัติ</button>`;
+  if(canSafety) actions+=`<div class="note" style="margin-bottom:8px">Safety พิจารณา — เลือก 1 สถานะ</div>
+    <button class="btn btn-green btn-block" onclick="safetyAct(${id},'approved')">✅ อนุมัติ</button>
+    <button class="btn btn-orange btn-block" style="margin-top:8px" onclick="safetyAct(${id},'not_cardinal')">⚠️ ไม่เข้าข่าย PSIF Cardinal rules</button>
+    <button class="btn btn-line btn-block" style="margin-top:8px;color:var(--purple);border-color:#DDD3FB" onclick="safetyAct(${id},'duplicate')">🔁 ซ้ำ</button>`;
   if(canIssueNo){
     const gate=hasIssuance(it.vsm,it.year);
     actions+= gate
@@ -1021,24 +1114,40 @@ function openItem(id){
     <div class="kv"><span class="k">No.PSIF</span><span>${esc(it.no||'—')}</span></div>
     <div class="kv"><span class="k">ผู้รายงาน</span><span>${esc(it.reporter_name||'')} (${esc(it.reporter_id)})</span></div>
     <div class="kv"><span class="k">หน่วยงาน</span><span>${esc(it.vsm||'-')}</span></div>
-    <div class="kv"><span class="k">ประเภท</span><span>${esc(it.category||'-')}</span></div>
+    <div class="kv"><span class="k">ประเภท</span><span>${esc(catLabel(it.category))}</span></div>
     <div class="kv"><span class="k">พื้นที่</span><span>${esc(it.area_id||'-')}</span></div>
     <div class="kv"><span class="k">เครื่องจักร</span><span>${esc(it.machine||'-')}</span></div>
     ${it.detail?`<div class="kv"><span class="k">รายละเอียด</span><span>${esc(it.detail)}</span></div>`:''}
     ${it.suggestion?`<div class="kv"><span class="k">ข้อเสนอแนะ</span><span>${esc(it.suggestion)}</span></div>`:''}
     ${it.safety_note?`<div class="kv"><span class="k">หมายเหตุ Safety</span><span>${esc(it.safety_note)}</span></div>`:''}
     ${it.done_detail?`<div class="kv"><span class="k">สรุปการแก้ไข</span><span>${esc(it.done_detail)}</span></div>`:''}
-    <h4 style="margin:14px 0 4px">📷 รูปก่อนแก้ไข</h4>
-    ${before.length?before.map(p=>`<img class="photo-full" src="${photoSrc(p)}">`).join(''):'<div class="sub">— ไม่มี —</div>'}
-    ${after.length?`<h4 style="margin:14px 0 4px">✅ รูปหลังแก้ไข</h4>`+after.map(p=>`<img class="photo-full" src="${photoSrc(p)}">`).join(''):''}
+    <h4 style="margin:16px 0 6px">📷 เปรียบเทียบก่อน / หลังแก้ไข</h4>
+    <div class="ba-compare">
+      <div class="col">
+        <div class="hd b">📷 ก่อนแก้ไข</div>
+        ${before.length?before.map(p=>`<img src="${photoSrc(p)}">`).join(''):'<div class="none">— ไม่มีรูป —</div>'}
+      </div>
+      <div class="col">
+        <div class="hd a">✅ หลังแก้ไข</div>
+        ${after.length?after.map(p=>`<img src="${photoSrc(p)}">`).join(''):'<div class="none">— ยังไม่มีรูป —</div>'}
+      </div>
+    </div>
     <div style="margin-top:16px">${actions}</div>
   `);
 }
 async function safetyAct(id,result){
-  const note = result==='rejected' ? (prompt('เหตุผลที่ไม่อนุมัติ:')||'') : (prompt('หมายเหตุ (ถ้ามี):')||'');
-  if(result==='rejected' && note===null) return;
+  let note='';
+  if(result==='approved'){
+    note = prompt('หมายเหตุ (ถ้ามี):')||'';
+  } else {
+    const def = result==='duplicate' ? 'ซ้ำ' : 'ไม่เข้าข่าย PSIF Cardinal rules';
+    const n = prompt('หมายเหตุ / เหตุผล:', def);
+    if(n===null) return;                       // ยกเลิก
+    note = n.trim() || def;
+  }
   await patchPsif(id,{status:'safety',safety_result:result,safety_note:note,safety_by:CURRENT_USER.id,safety_at:new Date().toISOString().slice(0,19).replace('T',' ')});
-  toast(result==='approved'?'อนุมัติแล้ว':'ไม่อนุมัติ', result==='approved'?'green':'red');
+  const msg={approved:'อนุมัติแล้ว',not_cardinal:'บันทึก: ไม่เข้าข่าย PSIF Cardinal rules',duplicate:'บันทึก: ซ้ำ'}[result]||'บันทึกแล้ว';
+  toast(msg, result==='approved'?'green':'orange');
   closeModal(); refreshAll();
 }
 async function issueNo(id){
@@ -1078,7 +1187,7 @@ function openEditItem(id){
   openModal('✏️ แก้ไขเนื้อหา', `
     <div class="note" style="margin-bottom:8px">แก้ไขเนื้อหาที่พนักงานส่งเข้ามา — ระบบจะแจ้งเตือนไปยังผู้รายงาน (${esc(it.reporter_name||it.reporter_id)})</div>
     <label class="fl">ประเภท</label>
-    <select class="inp" id="edCat">${FIXED_CATS.map(c=>`<option ${it.category===c.name?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
+    <select class="inp" id="edCat">${FIXED_CATS.map(c=>`<option value="${esc(c.key)}" ${(it.category===c.key||it.category===c.name)?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
     <label class="fl">หัวข้อเรื่อง</label><input class="inp" id="edTitle" value="${esc(it.title||'')}">
     <label class="fl">รายละเอียด</label><textarea class="inp" id="edDetail">${esc(it.detail||'')}</textarea>
     <label class="fl">ข้อเสนอแนะการแก้ไข</label><textarea class="inp" id="edSuggest">${esc(it.suggestion||'')}</textarea>
@@ -1106,12 +1215,12 @@ function renderSafety(){
   $('safetyNote').innerHTML = isSafety()
     ? 'ตรวจสอบเนื้อหา + ความซ้ำซ้อนก่อนอนุมัติ ระบบจะเตือนหากพบเรื่อง/เครื่องจักรที่คล้ายกัน'
     : '⚠️ เฉพาะเจ้าหน้าที่ Safety/Admin จึงจะอนุมัติได้ (คุณดูได้อย่างเดียว)';
-  const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['rejected','ไม่อนุมัติ']];
+  const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('safetyChips').innerHTML=chips.map(([k,l])=>{
-    const n=k==='recorded'?state.items.filter(i=>i.status==='recorded').length:state.items.filter(i=>i.safety_result===k).length;
+    const n=k==='recorded'?state.items.filter(i=>i.status==='recorded').length:state.items.filter(i=>safetyKind(i)===k).length;
     return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';renderSafety()">${l} (${n})</button>`;
   }).join('');
-  let arr = safetyFilter==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>i.safety_result===safetyFilter);
+  let arr = safetyFilter==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>safetyKind(i)===safetyFilter);
   $('safetyBody').innerHTML = arr.length? arr.map(cardHtml).join('') : `<div class="empty"><span class="ic">✅</span>ไม่มีรายการ</div>`;
 }
 
@@ -1126,20 +1235,21 @@ function renderReport(){
     `<button class="chip ${repTab===k?'on':''}" onclick="repTab='${k}';renderReport()">${l}</button>`).join('');
   repTab==='person'?renderRepPerson():renderRepOverview();
 }
-/* เป้าหมายใหม่รายคน/ปี: PSIF 2 · Behavior 2 · Near miss 2 (รวม 6) */
+/* เป้าหมายใหม่รายคน/ปี: PSIF(Con) 2 · Near miss 2 · PSIF(Behavior) 2 (รวม 6)
+   CAT_KEYS = ค่าที่เก็บใน DB, เรียงตามลำดับที่ต้องการแสดง (req #4) */
 const CAT_TARGET=2;
-const CAT_KEYS=['PSIF','Behavior','Near miss'];
-function newCatMap(){ return {PSIF:0,Behavior:0,'Near miss':0}; }
+const CAT_KEYS=['PSIF','Near miss','Behavior'];
+function newCatMap(){ return {PSIF:0,'Near miss':0,Behavior:0}; }
 function computePerson(y){
   const target=targetFor(y);
   const map={};
   state.employees.filter(e=>e.active!==0).forEach(e=>map[e.id]={id:e.id,name:e.name,vsm:e.vsm,submitted:0,done:0,approved:0,rejected:0,cats:newCatMap()});
   state.items.filter(i=>i.year==y).forEach(r=>{
     const m=map[r.reporter_id]||(map[r.reporter_id]={id:r.reporter_id,name:r.reporter_name||r.reporter_id,vsm:r.vsm||'',submitted:0,done:0,approved:0,rejected:0,cats:newCatMap()});
-    m.submitted++; if(r.status==='done')m.done++; if(r.safety_result==='approved')m.approved++; if(r.safety_result==='rejected')m.rejected++;
+    m.submitted++; if(r.status==='done')m.done++; if(r.safety_result==='approved')m.approved++; if(isRejected(r))m.rejected++;
     if(m.cats[r.category]!=null) m.cats[r.category]++;
   });
-  return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=BONUS(m.done);return m;}).sort((a,b)=>b.submitted-a.submitted||b.done-a.done)};
+  return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=bonusFromCats(m.cats);return m;}).sort((a,b)=>b.bonus-a.bonus||b.submitted-a.submitted||b.done-a.done)};
 }
 let repSearch='';
 let _repPeople=[], _repYear=null;
@@ -1149,10 +1259,10 @@ function repPersonRows(){
   const cell=v=>`<td class="num" style="color:${v>=CAT_TARGET?'var(--green)':'var(--muted)'};font-weight:${v>=CAT_TARGET?700:400}">${v}/${CAT_TARGET}</td>`;
   return list.map(p=>`<tr onclick="personDetail('${esc(p.id)}',${_repYear})" style="cursor:pointer">
     <td>${esc(p.name)}<div class="sub">${esc(p.id)}${p.vsm?' · '+esc(p.vsm):''}</div></td>
-    ${cell(p.cats.PSIF)}${cell(p.cats.Behavior)}${cell(p.cats['Near miss'])}
+    ${CAT_KEYS.map(k=>cell(p.cats[k])).join('')}
     <td class="num"><b>${p.submitted}</b></td>
     <td class="num" style="color:var(--green)">${p.done}</td>
-    <td class="num"><b>${p.bonus?p.bonus+'%':'-'}</b></td></tr>`).join('')
+    <td class="num"><b style="color:${p.bonus?'var(--green)':'var(--muted2)'}">${p.bonus?p.bonus+'%':'-'}</b></td></tr>`).join('')
     ||'<tr><td colspan="7" class="empty">ไม่พบพนักงานที่ค้นหา</td></tr>';
 }
 function updateRepRows(){ const el=$('repRows'); if(el) el.innerHTML=repPersonRows(); }
@@ -1160,10 +1270,10 @@ function renderRepPerson(){
   const y=repYearVal(); const {target,people}=computePerson(y);
   _repPeople=people; _repYear=y;
   $('repBody').innerHTML=`
-    <div class="card"><div class="sub">🎯 เป้าหมายใหม่รายคน/ปี: <b style="color:var(--blue)">PSIF ${CAT_TARGET}</b> · <b style="color:var(--purple)">Behavior ${CAT_TARGET}</b> · <b style="color:var(--orange)">Near miss ${CAT_TARGET}</b> (รวม ${target} เรื่อง) · โบนัสจากเรื่องที่เสร็จ: 4=5% · 5=7.5% · 6+=10%</div></div>
+    <div class="card"><div class="sub">🎯 เป้าหมายรายคน/ปี: <b style="color:var(--blue)">PSIF (Con) ${CAT_TARGET}</b> · <b style="color:var(--orange)">Near miss ${CAT_TARGET}</b> · <b style="color:var(--purple)">PSIF (Behavior) ${CAT_TARGET}</b> (รวม ${target} เรื่อง)<br>${BONUS_RULE_TXT}</div></div>
     <input class="inp" id="repSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(repSearch)}" oninput="repSearch=this.value;updateRepRows()" style="margin-bottom:10px">
     <div class="card scroll-x"><table class="tbl">
-      <thead><tr><th>พนักงาน</th><th class="num">PSIF</th><th class="num">Behavior</th><th class="num">Near miss</th><th class="num">รวมส่ง</th><th class="num">เสร็จ</th><th class="num">โบนัส</th></tr></thead>
+      <thead><tr><th>พนักงาน</th>${CAT_KEYS.map(k=>`<th class="num">${esc(catLabel(k))}</th>`).join('')}<th class="num">รวมส่ง</th><th class="num">เสร็จ</th><th class="num">โบนัส</th></tr></thead>
       <tbody id="repRows">${repPersonRows()}</tbody>
     </table></div>
     <button class="btn btn-line btn-block" onclick="exportPersonCSV(${y})">⬇️ ส่งออก CSV</button>`;
@@ -1174,7 +1284,7 @@ function personDetail(id,y){
   openModal('รายงาน: '+esc(emp?emp.name:id), items.length?items.map(it=>`
     <div class="item" onclick="closeModal();openItem(${it.id})">
       <div class="row" style="justify-content:space-between"><div class="tt">${esc(it.title)}</div>${statusBadge(it)}</div>
-      <div class="mt"><span>🏷️ ${esc(it.category||'-')}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}</div>
+      <div class="mt"><span>🏷️ ${esc(catLabel(it.category))}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}</div>
       ${(it.photos||[]).length?`<div class="thumbs">${it.photos.map(p=>`<img src="${photoSrc(p)}">`).join('')}</div>`:''}
     </div>`).join(''):'<div class="empty">ยังไม่มีเรื่อง</div>');
 }
@@ -1183,12 +1293,12 @@ function renderRepOverview(){
   const total=items.length, done=items.filter(i=>i.status==='done').length;
   const empCount=state.employees.filter(e=>e.active!==0).length||1;
   const byVsm={}, catSub=newCatMap();
-  items.forEach(i=>{ (byVsm[i.vsm||'-']??={t:0,d:0}); byVsm[i.vsm||'-'].t++; if(i.status==='done')byVsm[i.vsm||'-'].d++;
+  items.forEach(i=>{ const d=i.vsm||empVsm(i.reporter_id)||'-'; (byVsm[d]??={t:0,d:0}); byVsm[d].t++; if(i.status==='done')byVsm[d].d++;
     if(catSub[i.category]!=null) catSub[i.category]++; });
   const max=Math.max(1,...Object.values(byVsm).map(v=>v.t));
   const catTarget=CAT_TARGET*empCount;
   const catRow=k=>{ const a=catSub[k]; const pct=Math.round(a/catTarget*100);
-    return `<tr><td><b>${k}</b></td><td class="num">${catTarget.toLocaleString()}</td><td class="num" style="color:var(--green)">${a.toLocaleString()}</td><td class="num">${pct}%</td></tr>`; };
+    return `<tr><td><b>${esc(catLabel(k))}</b></td><td class="num">${catTarget.toLocaleString()}</td><td class="num" style="color:var(--green)">${a.toLocaleString()}</td><td class="num">${pct}%</td></tr>`; };
   $('repBody').innerHTML=`
     <div class="grid g3" style="margin-bottom:12px">
       <div class="stat blue"><div class="n">${total}</div><div class="l">ส่งแล้ว</div></div>
@@ -1239,6 +1349,36 @@ function dashTargetTable(title,col1,rows){
     <table class="tbl"><thead><tr><th>${esc(col1)}</th><th class="num">Target</th><th class="num">ทำได้</th><th class="num">%</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td class="num">${(r.target||0).toLocaleString()}</td><td class="num" style="color:var(--green);font-weight:700">${(r.actual||0).toLocaleString()}</td><td class="num">${r.target?Math.round(r.actual/r.target*100):0}%</td></tr>`).join('')}</tbody></table></div>`;
 }
+/* สถานะงานเป็นกราฟแท่ง (req #7) — rows: [{label,val,color}] */
+function statusBarChart(rows,total){
+  const t=Math.max(1,total);
+  return rows.map(r=>{ const v=r.val||0, pct=Math.round(v/t*100);
+    return `<div class="sbar">
+      <div class="sbar-top"><span class="sbar-lab"><i style="background:${r.color}"></i>${r.label}</span><span class="sbar-val"><b>${v.toLocaleString()}</b> · ${pct}%</span></div>
+      <div class="sbar-track"><span class="sbar-fill" style="width:${pct}%;background:${r.color}"></span></div>
+    </div>`; }).join('');
+}
+/* แยกแต่ละหน่วยงานเป็น 3 ประเภท พร้อม % (req #8) — entries: [[dept,{total,PSIF,'Near miss',Behavior}]] */
+function catBreakdown(entries){
+  return entries.map(([d,o])=>{
+    const t=Math.max(1,o.total);
+    const con=o['PSIF']||0, nm=o['Near miss']||0, beh=o['Behavior']||0;
+    const p=n=>Math.round(n/t*100);
+    return `<div class="dbrk">
+      <div class="dbrk-h"><b>${esc(d)}</b><span class="dbrk-t">${o.total.toLocaleString()} เรื่อง</span></div>
+      <div class="dbrk-bar">
+        ${con?`<span class="seg-con" style="width:${p(con)}%"></span>`:''}
+        ${nm?`<span class="seg-nm" style="width:${p(nm)}%"></span>`:''}
+        ${beh?`<span class="seg-beh" style="width:${p(beh)}%"></span>`:''}
+      </div>
+      <div class="dbrk-lg">
+        <span class="lg"><i class="d-con"></i>PSIF (Con) <b>${con}</b> · ${p(con)}%</span>
+        <span class="lg"><i class="d-nm"></i>Near miss <b>${nm}</b> · ${p(nm)}%</span>
+        <span class="lg"><i class="d-beh"></i>PSIF (Behavior) <b>${beh}</b> · ${p(beh)}%</span>
+      </div>
+    </div>`;
+  }).join('');
+}
 
 let dashMine=false;
 function renderDash(){
@@ -1250,9 +1390,10 @@ function renderDash(){
   if(dashMine){ renderMyDash(y); return; }
 
   const items=state.items.filter(i=>i.year==y);
-  const c={recorded:0,safety:0,inprogress:0,done:0,rejected:0};
+  const c={recorded:0,safety:0,inprogress:0,done:0,not_cardinal:0,duplicate:0,rejected:0};
   items.forEach(i=>{ const s=stageOf(i); c[s]=(c[s]||0)+1; });
   const total=items.length, done=c.done||0;
+  const notPassed=(c.not_cardinal||0)+(c.duplicate||0)+(c.rejected||0);
   const target=targetFor(y);
   const empCount=state.employees.filter(e=>e.active!==0).length||1;
   const plantTarget=target*empCount;
@@ -1262,19 +1403,19 @@ function renderDash(){
   const months=new Array(12).fill(0);
   items.forEach(i=>{ const mo=+String(i.created_at||'').slice(5,7); if(mo>=1&&mo<=12) months[mo-1]++; });
 
-  // แยกตามประเภท (PSIF/Behavior/Near miss)
+  // แยกตามประเภท (PSIF(Con)/Near miss/PSIF(Behavior))
   const catSub=newCatMap(); items.forEach(i=>{ if(catSub[i.category]!=null)catSub[i.category]++; });
   const catTarget=CAT_TARGET*empCount;
 
-  // แยกตามหน่วยงาน (ฟิลด์ vsm = แผนก) + จำนวนพนักงานต่อแผนก
-  const byDept={}; items.forEach(i=>{ const k=i.vsm||'(ไม่ระบุ)'; (byDept[k]??={t:0}); byDept[k].t++; });
-  const deptEmp={}; state.employees.filter(e=>e.active!==0).forEach(e=>{ const k=e.vsm||'(ไม่ระบุ)'; deptEmp[k]=(deptEmp[k]||0)+1; });
-  const allDepts=[...new Set([...Object.keys(deptEmp),...Object.keys(byDept)])];
+  // แยกตามหน่วยงาน แยกเป็น 3 ประเภท (req #8) — เดา vsm จากรหัสพนักงานถ้าเรื่องไม่มี (ลด "ไม่ระบุ", req #2)
+  const deptCat={};
+  items.forEach(i=>{ const d=i.vsm||empVsm(i.reporter_id)||'(ไม่ระบุ)';
+    const o=(deptCat[d]??={total:0,'PSIF':0,'Near miss':0,'Behavior':0});
+    o.total++; if(o[i.category]!=null)o[i.category]++; });
   const isVsm=d=>/^vsm/i.test(d);
-  const mkRows=list=>list.map(d=>({label:d,target:target*(deptEmp[d]||0),actual:(byDept[d]||{t:0}).t}))
-                       .sort((a,b)=>b.target-a.target||b.actual-a.actual);
-  const vsmRows=mkRows(allDepts.filter(isVsm));
-  const deptRows=mkRows(allDepts.filter(d=>!isVsm(d)));
+  const dEntries=Object.entries(deptCat).sort((a,b)=>b[1].total-a[1].total);
+  const vsmEntries=dEntries.filter(([d])=>isVsm(d));
+  const deptEntries=dEntries.filter(([d])=>!isVsm(d));
 
   const hero=`<div class="card dash-hero">
     <div class="dh-title">🏭 TENNECO Chonburi Plant · ปี ${y}</div>
@@ -1289,12 +1430,16 @@ function renderDash(){
 
   const monthCard=`<div class="card"><h3>📅 ส่งรายเดือน — ปี ${y}</h3>${monthChart(months,plantTarget/12)}</div>`;
   const catCard=dashTargetTable('🏷️ ประเภทของจุดเสี่ยงหรืออันตราย (PSIF)','ประเภท',
-    CAT_KEYS.map(k=>({label:k,target:catTarget,actual:catSub[k]})));
-  const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>
-    ${[['recorded','รอ Safety'],['safety','Safety แล้ว'],['inprogress','กำลังทำ'],['done','เสร็จ'],['rejected','ไม่อนุมัติ']]
-      .map(([k,l])=>barRow(l,c[k]||0,Math.max(1,total),String(c[k]||0))).join('')}</div>`;
-  const vsmCard=vsmRows.length?dashTargetTable('🏭 VSM','หน่วยงาน',vsmRows):'';
-  const deptCard=deptRows.length?dashTargetTable('🗂️ หน่วยงาน (Department)','หน่วยงาน',deptRows):'';
+    CAT_KEYS.map(k=>({label:catLabel(k),target:catTarget,actual:catSub[k]})));
+  const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>${statusBarChart([
+      {label:'รอ Safety',   val:c.recorded,   color:'var(--blue)'},
+      {label:'Safety แล้ว', val:c.safety,     color:'var(--purple)'},
+      {label:'กำลังทำ',      val:c.inprogress, color:'var(--amber)'},
+      {label:'เสร็จ',        val:c.done,       color:'var(--green)'},
+      {label:'ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)', val:notPassed, color:'var(--red)'},
+    ],total)}</div>`;
+  const vsmCard=vsmEntries.length?`<div class="card"><h3>🏭 VSM — แยกตามประเภท</h3><div class="sub" style="margin-bottom:2px">สัดส่วน PSIF (Con) · Near miss · PSIF (Behavior)</div>${catBreakdown(vsmEntries)}</div>`:'';
+  const deptCard=deptEntries.length?`<div class="card"><h3>🗂️ หน่วยงาน — แยกตามประเภท</h3><div class="sub" style="margin-bottom:2px">สัดส่วน PSIF (Con) · Near miss · PSIF (Behavior)</div>${catBreakdown(deptEntries)}</div>`:'';
 
   $('dashBody').innerHTML = dashWide
     ? hero + monthCard + `<div class="dash-grid cols2">${catCard}${statusCard}</div><div class="dash-grid cols2">${vsmCard}${deptCard}</div>`
@@ -1305,9 +1450,9 @@ function renderDash(){
 function renderMyDash(y){
   const mine=state.items.filter(i=>i.reporter_id===CURRENT_USER.id&&i.year==y);
   const cat=newCatMap(); mine.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
-  const done=mine.filter(i=>i.status==='done').length, bonus=BONUS(done);
+  const done=mine.filter(i=>i.status==='done').length, bonus=bonusFromCats(cat);
   const catBar=k=>{ const v=cat[k],ok=v>=CAT_TARGET;
-    return `<div class="mini-tgt"><span class="cap">${k}</span><span class="track"><span class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%"></span></span><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
+    return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><span class="track"><span class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%"></span></span><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
   $('dashBody').innerHTML=`
     <div class="card"><h3>🙋 สรุปของฉัน — ${esc(CURRENT_USER.name)} (${esc(CURRENT_USER.id)})</h3>
@@ -1317,7 +1462,8 @@ function renderMyDash(y){
         <div class="stat orange"><div class="n">${bonus?bonus+'%':'-'}</div><div class="l">โบนัส</div></div>
       </div>
       <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี</div>
-      ${catBar('PSIF')}${catBar('Behavior')}${catBar('Near miss')}
+      ${CAT_KEYS.map(catBar).join('')}
+      <div class="note" style="margin-top:10px;font-size:11.5px">${BONUS_RULE_TXT}</div>
     </div>
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
 }
@@ -1325,6 +1471,15 @@ function renderMyDash(y){
 /* ====================================================================
  *  SETTINGS / ADMIN
  * ==================================================================== */
+let empSearch='';
+function empRows(){                                  // ตารางพนักงาน + ค้นหา (req #6)
+  const q=norm(empSearch);
+  const list=q? state.employees.filter(e=>norm((e.name||'')+' '+(e.id||'')+' '+(e.vsm||'')).includes(q)) : state.employees;
+  return list.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(e.role||'user')}</td>
+    <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`).join('')
+    || `<tr><td colspan="5" class="empty">ไม่พบพนักงานที่ค้นหา “${esc(empSearch)}”</td></tr>`;
+}
+function updateEmpRows(){ const el=$('empRows'); if(el) el.innerHTML=empRows(); }
 function renderSettings(){
   $('apiUrl').value=API;
   if(!isAdmin()){
@@ -1339,8 +1494,8 @@ function renderSettings(){
     <div class="card"><h3>📥 นำเข้าข้อมูลจาก Excel (เฉพาะ Admin)</h3>
       <div class="sub" style="margin-bottom:8px">คัดลอกทั้งตารางจาก Excel แล้ววางด้านล่าง (ย้ายข้อมูลจากที่อื่นเข้าระบบนี้) — เรียงคอลัมน์ตามนี้ (คั่นด้วย Tab อัตโนมัติ):</div>
       <div class="note" style="margin-bottom:8px">1) วันที่ · 2) รหัสพนักงาน · 3) ประเภทเรื่อง · 4) เรื่อง · 5) ข้อเสนอแนะการแก้ไข · 6) การอนุมัติจาก Safety · 7) การดำเนินการ · 8) หมายเลข PSIF · 9) สถานที่/เครื่องจักร<br>
-      <span style="opacity:.8">ประเภท: PSIF / Near miss / Behavior · ระบบระบุ<b>หน่วยงาน</b>จากรหัสพนักงานให้อัตโนมัติ<br>
-      การอนุมัติจาก Safety: <b>Done</b> = Safety อนุมัติ · <b>ไม่เข้าข่าย/ซ้ำ</b> = ไม่อนุมัติ · เว้นว่าง = รอ Safety<br>
+      <span style="opacity:.8">ประเภท: PSIF (=PSIF Con) / Near miss / Behavior (=PSIF Behavior) · ระบบระบุ<b>หน่วยงาน</b>จากรหัสพนักงานให้อัตโนมัติ<br>
+      การอนุมัติจาก Safety: <b>Done</b> = อนุมัติ · <b>ไม่เข้าข่าย…</b> = ไม่เข้าข่าย PSIF Cardinal rules · <b>ซ้ำ</b> = ซ้ำ · เว้นว่าง = รอ Safety<br>
       การดำเนินการ: <b>Completed</b> = เสร็จ/จบแล้ว · <b>Scheduled</b> = กำลังดำเนินการ · เว้นว่าง = ยังไม่เริ่ม<br>
       วันที่: รับเลข Excel (เช่น 46050), 15/01/2567 (พ.ศ.) หรือ 2026-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
       <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked> ข้ามแถวแรก (หัวตาราง)</label>
@@ -1360,17 +1515,17 @@ function renderSettings(){
       <div class="sub" style="margin-top:8px">เปิดแล้ว: ${state.issuances.filter(i=>i.year==y).map(i=>esc(i.vsm)).join(', ')||'—'}</div>
     </div>
     <div class="card"><h3>🎯 เป้าหมาย/คน/ปี</h3>
-      <div class="note" style="margin-bottom:8px">เป้าหมายใหม่รายคน: <b>PSIF 2</b> · <b>Behavior 2</b> · <b>Near miss 2</b> เรื่อง/ปี (รวม 6) — ช่องด้านล่างคือค่ารวมต่อคน/ปี ใช้คำนวณเป้าโรงงานและโบนัส</div>
+      <div class="note" style="margin-bottom:8px">เป้าหมายรายคน: <b>PSIF (Con) 2</b> · <b>Near miss 2</b> · <b>PSIF (Behavior) 2</b> เรื่อง/ปี (รวม 6) — ช่องด้านล่างคือค่ารวมต่อคน/ปี ใช้คำนวณเป้าโรงงานและโบนัส<br>${BONUS_RULE_TXT}</div>
       <div class="row"><select class="inp" id="tgtYear" style="width:auto">${[y,y+1].map(yy=>`<option>${yy}</option>`).join('')}</select>
       <input class="inp" id="tgtN" type="number" value="${targetFor(y)}" style="width:90px">
       <button class="btn btn-blue btn-sm" onclick="saveTarget()">บันทึก</button></div>
     </div>
     <div class="card"><h3>👥 พนักงาน (${state.employees.length})</h3>
       <button class="btn btn-blue btn-sm" onclick="editEmp()">➕ เพิ่ม/แก้ไข</button>
-      <div class="scroll-x" style="margin-top:8px;max-height:240px;overflow-y:auto"><table class="tbl">
-        <tr><th>รหัส</th><th>ชื่อ</th><th>หน่วยงาน</th><th>สิทธิ์</th><th></th></tr>
-        ${state.employees.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(e.role||'user')}</td>
-          <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`).join('')}
+      <input class="inp" id="empSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(empSearch)}" oninput="empSearch=this.value;updateEmpRows()" style="margin:8px 0">
+      <div class="scroll-x" style="max-height:280px;overflow-y:auto"><table class="tbl">
+        <thead><tr><th>รหัส</th><th>ชื่อ</th><th>หน่วยงาน</th><th>สิทธิ์</th><th></th></tr></thead>
+        <tbody id="empRows">${empRows()}</tbody>
       </table></div>
     </div>
     <div class="card"><h3>📍 พื้นที่/เครื่องจักร (${state.areas.length})</h3>
@@ -1459,7 +1614,9 @@ function parseTSV(text){
 function mapSafety(f){   // การอนุมัติจาก Safety
   const s=(f||'').trim(); if(!s) return {safety_result:'pending', safety_note:''};
   if(/^done$/i.test(s) || /อนุมัติ|ผ่าน|approve/i.test(s)) return {safety_result:'approved', safety_note:''};
-  return {safety_result:'rejected', safety_note:s};   // ไม่เข้าข่าย / ซ้ำ / อื่นๆ = Safety พิจารณาแล้วไม่อนุมัติ
+  if(/ซ้ำ|ซํ้า|duplicate/i.test(s)) return {safety_result:'duplicate', safety_note:s};
+  if(/ไม่เข้าข่าย|cardinal/i.test(s)) return {safety_result:'not_cardinal', safety_note:s};
+  return {safety_result:'rejected', safety_note:s};   // อื่นๆ = Safety พิจารณาแล้วไม่อนุมัติ
 }
 function mapAction(g){   // การดำเนินการ -> ระดับความคืบหน้า
   const s=(g||'').trim().toLowerCase(); if(!s) return '';
@@ -1498,9 +1655,10 @@ function buildImportRecord(cols){
   const emp=matchEmpId(empId);
   const sf=mapSafety(safetyTxt);
   const act=mapAction(actionTxt);
-  // status: ถ้า Safety ไม่อนุมัติ -> ปิดที่ขั้น safety · ไม่งั้นดูการดำเนินการ · อนุมัติแต่ยังไม่เริ่ม -> safety
+  // status: ถ้า Safety ไม่ผ่าน (ไม่อนุมัติ/ซ้ำ/ไม่เข้าข่าย) -> ปิดที่ขั้น safety · ไม่งั้นดูการดำเนินการ · อนุมัติแต่ยังไม่เริ่ม -> safety
+  const rejectedLike = ['rejected','duplicate','not_cardinal'].includes(sf.safety_result);
   let status;
-  if(sf.safety_result==='rejected') status='safety';
+  if(rejectedLike) status='safety';
   else if(act==='done') status='done';
   else if(act==='inprogress') status='inprogress';
   else if(sf.safety_result==='approved') status='safety';
@@ -1533,16 +1691,17 @@ function previewImport(){
   const unmatched=_importRecs.filter(r=>!r._matched).map(r=>r._name).filter(Boolean);
   const badDate=_importRecs.filter(r=>!r._dateOk).length;
   const nApproved=_importRecs.filter(r=>r.safety_result==='approved').length;
-  const nRejected=_importRecs.filter(r=>r.safety_result==='rejected').length;
+  const nRejected=_importRecs.filter(r=>['rejected','duplicate','not_cardinal'].includes(r.safety_result)).length;
   const nDone=_importRecs.filter(r=>r.status==='done').length;
-  const stLabel=r=> r.safety_result==='rejected' ? '<span class="badge b-red" style="font-size:10px">ไม่อนุมัติ</span>'
+  const stLabel=r=> ['rejected','duplicate','not_cardinal'].includes(r.safety_result)
+      ? `<span class="badge ${SAFETY_KIND[r.safety_result].cls}" style="font-size:10px">${SAFETY_KIND[r.safety_result].label}</span>`
       : ({recorded:'บันทึก',safety:'Safety อนุมัติ',inprogress:'กำลังทำ',done:'<b>เสร็จ</b>'}[r.status]||r.status);
   const rows=_importRecs.slice(0,8).map(r=>`<tr>
     <td>${esc(r.created_at?r.created_at.slice(0,10):'—')}</td>
     <td>${esc(r.no||'—')}</td>
     <td>${esc(r.reporter_id)}${r._matched?'':' <span class="badge b-orange" style="font-size:10px">ไม่พบรหัส</span>'}<div class="sub">${esc(r.reporter_name||'')}</div></td>
     <td>${esc(r.vsm||'—')}</td>
-    <td>${esc(r.category)}</td>
+    <td>${esc(catLabel(r.category))}</td>
     <td>${esc((r.title||'').slice(0,36))}</td>
     <td>${esc(r.machine||'—')}</td>
     <td>${stLabel(r)}</td></tr>`).join('');
@@ -1593,8 +1752,8 @@ function exportAllCSV(y){
 }
 function exportPersonCSV(y){
   const {people}=computePerson(y);
-  const head=['id','name','vsm','PSIF','Behavior','Near miss','submitted','done','approved','rejected','missing','bonus%'];
-  const rows=people.map(p=>[p.id,p.name,p.vsm,p.cats.PSIF,p.cats.Behavior,p.cats['Near miss'],p.submitted,p.done,p.approved,p.rejected,p.missing,p.bonus].map(csvCell).join(','));
+  const head=['id','name','vsm','PSIF (Con)','Near miss','PSIF (Behavior)','submitted','done','approved','rejected','missing','bonus%'];
+  const rows=people.map(p=>[p.id,p.name,p.vsm,p.cats.PSIF,p.cats['Near miss'],p.cats.Behavior,p.submitted,p.done,p.approved,p.rejected,p.missing,p.bonus].map(csvCell).join(','));
   dl(`PSIF_person_${y}.csv`,[head.join(','),...rows].join('\n')); toast('ส่งออกแล้ว','green');
 }
 
