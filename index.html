@@ -626,18 +626,19 @@ const STATUS = {
   done:      {label:'เสร็จ', cls:'b-green'},
 };
 const STEPS = ['บันทึกเข้าระบบ','Safety อนุมัติ','กำลังดำเนินการ','เสร็จ'];
-/* โบนัส (req #1): คิดจากจำนวนเรื่องต่อประเภท ต้องมี PSIF(Con) ≥2 เป็นพื้นฐาน
-   10%  = PSIF(Con) ≥2 · PSIF(Behavior) ≥2 · Near miss ≥2
-   7.5% = PSIF(Con) ≥2 · PSIF(Behavior) ≥2 · Near miss ≥1
-   5%   = PSIF(Con) ≥2 · Near miss ≥1 (Behavior ไม่ถึง 2) */
+/* โบนัสแบบบวกสะสม (แก้ 2026-07-10 ตามกฎล่าสุด):
+   ผ่าน PSIF(Con) ≥2      = 5% (พื้นฐาน — ถ้าไม่ผ่าน ได้ 0%)
+   ครบ Near miss ≥2       = +2.5%
+   ครบ PSIF(Behavior) ≥2  = +2.5%   (สูงสุดรวม 10%) */
 function bonusFromCats(cats){
   const con=cats['PSIF']||0, beh=cats['Behavior']||0, nm=cats['Near miss']||0;
-  if(con>=2 && beh>=2 && nm>=2) return 10;
-  if(con>=2 && beh>=2 && nm>=1) return 7.5;
-  if(con>=2 && nm>=1)           return 5;
-  return 0;
+  if(con<2) return 0;
+  let b=5;
+  if(nm>=2)  b+=2.5;
+  if(beh>=2) b+=2.5;
+  return b;
 }
-const BONUS_RULE_TXT='เงื่อนไขโบนัส: ต้องมี PSIF(Con) ≥2 · <b>10%</b> เมื่อ Behavior ≥2 &amp; Near miss ≥2 · <b>7.5%</b> เมื่อ Behavior ≥2 &amp; Near miss ≥1 · <b>5%</b> เมื่อ Near miss ≥1';
+const BONUS_RULE_TXT='เงื่อนไขโบนัส: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%';
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -1522,7 +1523,7 @@ function renderMyDash(y){
       <div class="grid g3" style="margin:2px 0 12px">
         <div class="stat blue"><div class="n">${mine.length}</div><div class="l">ส่งแล้ว</div></div>
         <div class="stat green"><div class="n">${done}</div><div class="l">เสร็จ</div></div>
-        <div class="stat orange"><div class="n">${bonus?bonus+'%':'-'}</div><div class="l">โบนัส</div></div>
+        <div class="stat orange"><div class="n">${bonus}%</div><div class="l">โบนัส</div></div>
       </div>
       <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี</div>
       ${CAT_KEYS.map(catBar).join('')}
