@@ -528,10 +528,14 @@ label.fl{font-weight:600;letter-spacing:.2px}
         <label class="fl">ข้อเสนอแนะการแก้ไข <span class="req">*</span></label>
         <textarea class="inp" id="cSuggest" placeholder="ควรแก้ไขอย่างไร"></textarea>
         <label class="fl">รูปภาพก่อนแก้ไข <span class="req">* (บังคับ)</span></label>
-        <div class="dropzone" id="cPhotoZone" onclick="document.getElementById('cPhoto').click()">
-          📷 แตะเพื่อถ่ายรูป / เลือกรูป
+        <div class="dropzone" id="cPhotoZone" onclick="triggerPhoto('cPhoto',false)">
+          📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ
         </div>
-        <input type="file" id="cPhoto" accept="image/*" capture="environment" class="hidden" onchange="onPickPhoto(this,'before')">
+        <div class="row" style="margin-top:8px">
+          <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',true)">📷 ถ่ายรูป</button>
+          <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',false)">🖼️ เลือกจากมือถือ</button>
+        </div>
+        <input type="file" id="cPhoto" accept="image/*" class="hidden" onchange="onPickPhoto(this,'before')">
         <button class="btn btn-blue btn-block" style="margin-top:16px" onclick="submitPsif()">💾 บันทึกเข้าระบบ</button>
       </div>
     </div>
@@ -980,6 +984,15 @@ function setPane(p){
  * ==================================================================== */
 let pendingPhoto=null;
 function refreshCreate(){ fillStaticUI(); onAreaChange(); }
+/* เปิดกล้อง (ถ่ายรูป) หรือคลังรูปในมือถือ (เลือกรูป) จาก input เดียวกัน
+   useCamera=true → บังคับกล้อง, useCamera=false → เปิดคลังรูป/ไฟล์ให้เลือกเอง */
+function triggerPhoto(inputId,useCamera){
+  const inp=document.getElementById(inputId); if(!inp) return;
+  if(useCamera) inp.setAttribute('capture','environment');
+  else inp.removeAttribute('capture');
+  inp.value=''; /* ให้เลือกไฟล์เดิมซ้ำได้และรีเซ็ต capture */
+  inp.click();
+}
 async function onPickPhoto(input,kind){
   const f=input.files[0]; if(!f)return;
   try{
@@ -1259,8 +1272,12 @@ function openClose(id){
     <label class="fl">สรุปการแก้ไข</label>
     <textarea class="inp" id="closeDetail" placeholder="อธิบายสิ่งที่แก้ไข"></textarea>
     <label class="fl">รูปหลังแก้ไข <span class="req">* (บังคับ)</span></label>
-    <div class="dropzone" id="closeZone" onclick="document.getElementById('closePhotoInput').click()">📷 แตะเพื่อถ่าย/เลือกรูป</div>
-    <input type="file" id="closePhotoInput" accept="image/*" capture="environment" class="hidden" onchange="onClosePhoto(this)">
+    <div class="dropzone" id="closeZone" onclick="triggerPhoto('closePhotoInput',false)">📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ</div>
+    <div class="row" style="margin-top:8px">
+      <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',true)">📷 ถ่ายรูป</button>
+      <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',false)">🖼️ เลือกจากมือถือ</button>
+    </div>
+    <input type="file" id="closePhotoInput" accept="image/*" class="hidden" onchange="onClosePhoto(this)">
     <button class="btn btn-green btn-block" style="margin-top:14px" onclick="doClose()">ยืนยันปิดงาน</button>`);
 }
 async function onClosePhoto(input){
