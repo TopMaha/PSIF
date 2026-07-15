@@ -9,7 +9,7 @@
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type,X-Emp-Id',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -22,6 +22,50 @@ const ok  = (extra = {}) => json({ ok: true, ...extra });
 const err = (msg, status = 400) => json({ ok: false, error: String(msg) }, status);
 
 const nowISO = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+/* ---------------- actor & roles (ข้อ 3/6: เช็คสิทธิ์ที่ backend) ----------------
+ * ตัวตนผู้เรียก: header X-Emp-Id (client ใหม่) → ?by= (DELETE เดิม) → fallbackId
+ * (body._by ของ PATCH เดิม / reporter_id ตอนสร้าง) เพื่อไม่ให้ client เก่าที่ค้าง cache พัง
+ * สำคัญ: role/แผนก อ่านจากตาราง employees ฝั่ง server เสมอ — ไม่เชื่อ role ที่ client ส่งมา */
+async function getActor(env, request, fallbackId) {
+  let id = request.headers.get('X-Emp-Id') || '';
+  try { id = decodeURIComponent(id); } catch (_) { /* ค่าไม่ใช่ URI-encoded ก็ใช้ตามนั้น */ }
+  if (!id) id = new URL(request.url).searchParams.get('by') || '';
+  if (!id) id = fallbackId || '';
+  id = String(id).trim();
+  if (!id) return null;
+  const emp = await env.DB.prepare(
+    'SELECT id,name,vsm,role,active FROM employees WHERE id=? COLLATE NOCASE'
+  ).bind(id).first();
+  return (emp && emp.active !== 0) ? emp : null;
+}
+/* ตั้งค่า/ข้อมูลหลักทั้งหมด = เฉพาะ Super Admin (role 'admin') — Safety/Dept Admin ถูกกันที่นี่ */
+async function requireSuperAdmin(env, request, body) {
+  const a = await getActor(env, request, body && body._by);
+  if (!a) return err('ไม่ทราบตัวตนผู้ใช้ — โปรดรีเฟรชหน้าแอปแล้วเข้าสู่ระบบใหม่', 401);
+  if (a.role !== 'admin') return err('เฉพาะ Super Admin เท่านั้น (เมนูตั้งค่า/ข้อมูลหลัก)', 403);
+  return null;
+}
+
+/* ข้อ 2: ประเภทที่บังคับแนบรูป = PSIF (Con) เท่านั้น (ค่าใน DB คือ 'PSIF') */
+const catIsCon = v => {
+  v = String(v || '').trim().toLowerCase();
+  return v === 'psif' || v === 'psif (con)' || v === 'psif(con)';
+};
+const hasRealPhoto = (ph, kind) => Array.isArray(ph) && ph.some(p => {
+  const k = p && (p.key || p.r2_key);
+  return k && !String(k).startsWith('data:') && (!kind || (p.kind || kind) === kind);
+});
+
+/* ข้อ 4: "นับผลงาน" เฉพาะรายการที่ Safety อนุมัติ และ ดำเนินการจนจบ เท่านั้น */
+const isCounted = r => r && r.safety_result === 'approved' && r.status === 'done';
+
+/* ข้อ 1: idempotency — หา record จาก request_id (คอลัมน์อาจยังไม่ migrate → ถือว่าไม่ซ้ำ) */
+async function findByRequestId(env, reqId) {
+  try {
+    return await env.DB.prepare('SELECT * FROM psif WHERE request_id=?').bind(reqId).first();
+  } catch (_) { return null; }
+}
 
 export default {
   async fetch(request, env) {
@@ -40,7 +84,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '1.0', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees': return await crudRoute(env, request, seg, 'employees');
@@ -64,6 +108,8 @@ export default {
 async function importRoute(env, request) {
   if (request.method !== 'POST') return err('method not allowed', 405);
   const b = await request.json();
+  const deny = await requireSuperAdmin(env, request, b);   // ข้อ 3/6: นำเข้าข้อมูล = Super Admin เท่านั้น
+  if (deny) return deny;
   const rows = Array.isArray(b.rows) ? b.rows : [];
   if (!rows.length) return err('no rows');
   const now = nowISO();
@@ -115,6 +161,10 @@ async function psifRoute(env, request, seg) {
     }
     const year = u.searchParams.get('year');
     if (year) { where.push('year=?'); bind.push(+year); }
+    // ข้อ 3: Department Admin เห็นเฉพาะแผนกตัวเอง — กรองที่ query ไม่ใช่แค่ซ่อน UI
+    // (เรียกแบบไม่ระบุตัวตน เช่นตอนยังไม่ล็อกอิน = ไม่กรอง เหมือนเดิม เพื่อไม่ให้ bootstrap/login พัง)
+    const actor = await getActor(env, request);
+    if (actor && actor.role === 'dept_admin') { where.push('vsm=?'); bind.push(actor.vsm || ''); }
     const sql = 'SELECT * FROM psif' + (where.length ? ' WHERE ' + where.join(' AND ') : '') +
                 ' ORDER BY created_at DESC';
     const rows = (await env.DB.prepare(sql).bind(...bind).all()).results;
@@ -125,6 +175,10 @@ async function psifRoute(env, request, seg) {
   if (request.method === 'GET' && id) {
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
     if (!row) return err('not found', 404);
+    const actor = await getActor(env, request);
+    if (actor && actor.role === 'dept_admin' &&
+        (row.vsm || '').trim() !== (actor.vsm || '').trim() && row.reporter_id !== actor.id)
+      return err('Admin แผนก เข้าถึงได้เฉพาะรายการของแผนกตัวเอง', 403);
     await attachPhotos(env, [row]);
     return ok({ item: row });
   }
@@ -132,18 +186,47 @@ async function psifRoute(env, request, seg) {
   if (request.method === 'POST') {
     const b = await request.json();
     if (!b.reporter_id) return err('reporter_id required');
+    // ข้อ 2: PSIF (Con) เท่านั้นที่บังคับแนบรูปก่อนแก้ไข — เช็คซ้ำฝั่ง server (อย่าเชื่อ frontend อย่างเดียว)
+    if (catIsCon(b.category) && !hasRealPhoto(b.photos, 'before'))
+      return err('ประเภท PSIF (Con) ต้องแนบรูปก่อนแก้ไข (บังคับ)');
     // title field was removed from the form — derive it from the detail
     const title = (b.title || (b.detail || '').replace(/\s+/g, ' ').trim().slice(0, 120) || '(ไม่มีหัวข้อ)');
     const year = b.year || new Date().getFullYear();
-    const r = await env.DB.prepare(
-      `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,status,year,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?, 'recorded', ?,?,?)`
-    ).bind(
+    const reqId = String(b.request_id || '').slice(0, 64);
+
+    // ข้อ 1: idempotency — requestId เดิมถูกบันทึกไปแล้ว (double-click/retry) → คืน record เดิม ไม่สร้างซ้ำ
+    if (reqId) {
+      const dup = await findByRequestId(env, reqId);
+      if (dup) { await attachPhotos(env, [dup]); return ok({ item: dup, duplicate: true }); }
+    }
+
+    const commonBind = [
       b.no || '', b.reporter_id, b.reporter_name || '', b.vsm || '', b.area_id || '',
-      b.machine || '', b.category || '', title, b.detail || '', b.suggestion || '',
-      year, nowISO(), nowISO()
-    ).run();
-    const newId = r.meta.last_row_id;
+      b.machine || '', b.category || '', title, b.detail || '', b.suggestion || '', year,
+    ];
+    let newId = null;
+    try {
+      const r = await env.DB.prepare(
+        `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,year,status,request_id,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?, 'recorded', ?,?,?)`
+      ).bind(...commonBind, reqId, nowISO(), nowISO()).run();
+      newId = r.meta.last_row_id;
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (reqId && /UNIQUE|constraint/i.test(msg)) {
+        // สอง request ยิงพร้อมกันเป๊ะ — unique index (DB ชั้นสุดท้าย) กันไว้ → คืนแถวที่สำเร็จไปแล้ว
+        const dup = await findByRequestId(env, reqId);
+        if (dup) { await attachPhotos(env, [dup]); return ok({ item: dup, duplicate: true }); }
+        throw e;
+      } else if (/no such column/i.test(msg)) {
+        // ยังไม่ได้ run migration (request_id) — insert แบบเดิมไปก่อน ไม่ให้ระบบล่ม (ควรรีบ run migration)
+        const r = await env.DB.prepare(
+          `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,year,status,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?, 'recorded', ?,?)`
+        ).bind(...commonBind, nowISO(), nowISO()).run();
+        newId = r.meta.last_row_id;
+      } else throw e;
+    }
     // attach any photos already uploaded (req #2: before-photo)
     if (Array.isArray(b.photos)) {
       for (const p of b.photos) {
@@ -151,11 +234,11 @@ async function psifRoute(env, request, seg) {
         if (k && !k.startsWith('data:')) await addPhoto(env, newId, p.kind || 'before', k);
       }
     }
-    // req: notify the Admin/Manager group (role admin|safety) when a new report arrives
+    // แจ้งกลุ่มผู้ดูแลเมื่อมีเรื่องใหม่: Super Admin + Safety ทุกคน และ Admin แผนกของหน่วยงานนั้น (ข้อ 3)
     try {
       const mgrs = (await env.DB.prepare(
-        "SELECT id FROM employees WHERE role IN ('admin','safety') AND active=1"
-      ).all()).results;
+        "SELECT id FROM employees WHERE active=1 AND (role IN ('admin','safety') OR (role='dept_admin' AND vsm=?))"
+      ).bind(b.vsm || '').all()).results;
       const rn = b.reporter_name || b.reporter_id;
       const t = title.slice(0, 40);
       for (const m of mgrs) {
@@ -172,11 +255,54 @@ async function psifRoute(env, request, seg) {
     const b = await request.json();
     const oldRow = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
     if (!oldRow) return err('not found', 404);
-    const allowed = ['no','reporter_name','vsm','area_id','machine','category','title','detail',
-      'suggestion','status','safety_result','safety_note','safety_by','safety_at',
-      'done_detail','done_by','done_at'];
+
+    /* ---- ข้อ 3/6: สิทธิ์แก้ไขเช็คที่ backend (role จากตาราง employees ไม่ใช่จาก client) ----
+     *  Super Admin ('admin')  : ทุกฟิลด์ ทุกแผนก
+     *  Dept Admin             : เนื้อหา + workflow (ออกเลข/ปิดงาน) เฉพาะแผนกตัวเอง — ห้ามแตะผลตรวจ Safety
+     *  Safety                 : ผลตรวจ + แก้เนื้อหา (ตามสิทธิ์เดิม) — ห้ามออกเลข/ปิดงานของคนอื่น
+     *  ผู้รายงานเอง            : ปิดงานเรื่องของตัวเองเท่านั้น */
+    const actor = await getActor(env, request, b._by);
+    if (!actor) return err('ไม่ทราบตัวตนผู้ใช้ — โปรดรีเฟรชหน้าแอปแล้วเข้าสู่ระบบใหม่', 401);
+    const superA = actor.role === 'admin';
+    const sameDept = (oldRow.vsm || '').trim() === (actor.vsm || '').trim();
+    const deptA = actor.role === 'dept_admin' && sameDept;
+    const safeA = actor.role === 'safety' || superA;
+    const isReporter = actor.id === oldRow.reporter_id;
+    if (actor.role === 'dept_admin' && !sameDept && !isReporter)
+      return err('Admin แผนก จัดการได้เฉพาะรายการของแผนกตัวเอง', 403);
+
+    const CONTENT_FIELDS = ['no','reporter_name','vsm','area_id','machine','category','title','detail','suggestion'];
+    const SAFETY_FIELDS  = ['safety_result','safety_note','safety_by','safety_at'];
+    const CLOSE_FIELDS   = ['done_detail','done_by','done_at'];
+    const ALL_FIELDS     = [...CONTENT_FIELDS, ...SAFETY_FIELDS, ...CLOSE_FIELDS, 'status'];
+    const permitted = new Set();
+    if (superA)     ALL_FIELDS.forEach(k => permitted.add(k));
+    if (deptA)      [...CONTENT_FIELDS, ...CLOSE_FIELDS, 'status'].forEach(k => permitted.add(k));
+    if (safeA)      [...CONTENT_FIELDS, ...SAFETY_FIELDS, 'status'].forEach(k => permitted.add(k));
+    if (isReporter) [...CLOSE_FIELDS, 'status'].forEach(k => permitted.add(k));
+    for (const k of ALL_FIELDS)
+      if (k in b && !permitted.has(k)) return err(`สิทธิ์ไม่พอสำหรับแก้ไขข้อมูลนี้ (${k})`, 403);
+    if ('status' in b) {
+      const st = b.status;
+      const okStatus = superA
+        || (deptA && ['inprogress', 'done'].includes(st))
+        || (safeA && st === 'safety')
+        || (isReporter && st === 'done');
+      if (!okStatus) return err(`สิทธิ์ไม่พอสำหรับเปลี่ยนสถานะเป็น "${st}"`, 403);
+    }
+
+    // ข้อ 2: ปิดงานประเภท PSIF (Con) ต้องมีรูปหลังแก้ไข (มีอยู่แล้วใน DB หรือแนบมากับคำขอนี้)
+    if (b.status === 'done' && oldRow.status !== 'done' && catIsCon(b.category ?? oldRow.category)) {
+      const hasNewAfter = hasRealPhoto(b.photos, 'after');
+      if (!hasNewAfter) {
+        const n = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM psif_photos WHERE psif_id=? AND kind='after'").bind(id).first();
+        if (!n || !n.n) return err('ประเภท PSIF (Con) ต้องแนบรูปหลังแก้ไขก่อนปิดงาน');
+      }
+    }
+
     const sets = [], bind = [];
-    for (const k of allowed) {
+    for (const k of ALL_FIELDS) {
       if (k in b) { sets.push(`${k}=?`); bind.push(b[k]); }
     }
     if (sets.length) {
@@ -185,10 +311,9 @@ async function psifRoute(env, request, seg) {
       await env.DB.prepare(`UPDATE psif SET ${sets.join(',')} WHERE id=?`).bind(...bind).run();
     }
     // req: notify the reporter whenever someone else acts on their record
-    const actor = b._by || '';
-    if (oldRow.reporter_id && actor !== oldRow.reporter_id) {
+    if (oldRow.reporter_id && actor.id !== oldRow.reporter_id) {
       for (const m of notifMessages(oldRow, b)) {
-        await notify(env, oldRow.reporter_id, +id, m, actor, b._by_name || '');
+        await notify(env, oldRow.reporter_id, +id, m, actor.id, b._by_name || actor.name || '');
       }
     }
     if (Array.isArray(b.photos)) {
@@ -205,16 +330,19 @@ async function psifRoute(env, request, seg) {
 
   if (request.method === 'DELETE' && id) {
     const u = new URL(request.url);
+    // ข้อ 3: ลบรายการ = Super Admin เท่านั้น (เดิม backend ไม่เช็คเลย)
+    const actor = await getActor(env, request);
+    if (!actor) return err('ไม่ทราบตัวตนผู้ใช้ — โปรดรีเฟรชหน้าแอปแล้วเข้าสู่ระบบใหม่', 401);
+    if (actor.role !== 'admin') return err('เฉพาะ Super Admin เท่านั้นที่ลบรายการได้', 403);
     const row = await env.DB.prepare('SELECT reporter_id,title FROM psif WHERE id=?').bind(id).first();
     const photos = (await env.DB.prepare('SELECT r2_key FROM psif_photos WHERE psif_id=?').bind(id).all()).results;
     if (env.BUCKET) { for (const p of photos) { try { await env.BUCKET.delete(p.r2_key); } catch (_) {} } }
     await env.DB.prepare('DELETE FROM psif_photos WHERE psif_id=?').bind(id).run();
     await env.DB.prepare('DELETE FROM psif WHERE id=?').bind(id).run();
-    const actor = u.searchParams.get('by') || '';
-    if (row && row.reporter_id && actor !== row.reporter_id) {
+    if (row && row.reporter_id && actor.id !== row.reporter_id) {
       await notify(env, row.reporter_id, +id,
         `🗑️ เรื่อง "${(row.title || '').slice(0, 40)}" ถูกลบออกจากระบบ`,
-        actor, u.searchParams.get('by_name') || '');
+        actor.id, u.searchParams.get('by_name') || actor.name || '');
     }
     return ok({ deleted: id });
   }
@@ -334,6 +462,8 @@ async function crudRoute(env, request, seg, table) {
   }
   if (request.method === 'POST') { // upsert
     const b = await request.json();
+    const deny = await requireSuperAdmin(env, request, b);   // ข้อ 3/6: แก้ข้อมูลหลัก = Super Admin เท่านั้น
+    if (deny) return deny;
     if (!b.id || !b.name) return err('id and name required');
     if (table === 'employees') {
       await env.DB.prepare(
@@ -354,6 +484,8 @@ async function crudRoute(env, request, seg, table) {
     return ok({ id: b.id });
   }
   if (request.method === 'DELETE' && id) {
+    const deny = await requireSuperAdmin(env, request);
+    if (deny) return deny;
     await env.DB.prepare(`DELETE FROM ${table} WHERE id=?`).bind(id).run();
     return ok({ deleted: id });
   }
@@ -368,6 +500,8 @@ async function targetsRoute(env, request) {
   }
   if (request.method === 'POST') {
     const b = await request.json();
+    const deny = await requireSuperAdmin(env, request, b);   // ข้อ 3/6: ตั้งเป้าหมาย = Super Admin เท่านั้น
+    if (deny) return deny;
     const year = +b.year || new Date().getFullYear();
     await env.DB.prepare(
       `INSERT INTO targets (year,per_person_target) VALUES (?,?)
@@ -387,6 +521,8 @@ async function issuancesRoute(env, request, seg) {
   }
   if (request.method === 'POST') {
     const b = await request.json();
+    const deny = await requireSuperAdmin(env, request, b);   // ข้อ 3/6: เปิดดำเนินการ = Super Admin เท่านั้น
+    if (deny) return deny;
     if (!b.vsm) return err('vsm required');
     const year = +b.year || new Date().getFullYear();
     const r = await env.DB.prepare(
@@ -395,6 +531,8 @@ async function issuancesRoute(env, request, seg) {
     return ok({ id: r.meta.last_row_id });
   }
   if (request.method === 'DELETE' && id) {
+    const deny = await requireSuperAdmin(env, request);
+    if (deny) return deny;
     await env.DB.prepare('DELETE FROM issuances WHERE id=?').bind(id).run();
     return ok({ deleted: id });
   }
@@ -453,25 +591,27 @@ async function reportRoute(env, url, seg) {
   if (kind === 'person') {
     const emp = (await env.DB.prepare('SELECT id,name,vsm FROM employees WHERE active=1').all()).results;
     const rows = (await env.DB.prepare(
-      'SELECT reporter_id,status,safety_result FROM psif WHERE year=?').bind(year).all()).results;
+      'SELECT reporter_id,status,safety_result,category FROM psif WHERE year=?').bind(year).all()).results;
     const target = (await env.DB.prepare('SELECT per_person_target FROM targets WHERE year=?')
       .bind(year).first())?.per_person_target || 6;
+    const newCats = () => ({ 'PSIF': 0, 'Near miss': 0, 'Behavior': 0 });
     const map = {};
     for (const e of emp) map[e.id] = {
       id: e.id, name: e.name, vsm: e.vsm,
-      submitted: 0, done: 0, approved: 0, rejected: 0,
+      submitted: 0, done: 0, approved: 0, rejected: 0, cats: newCats(),
     };
     for (const r of rows) {
       const m = map[r.reporter_id] || (map[r.reporter_id] = {
-        id: r.reporter_id, name: r.reporter_id, vsm: '', submitted: 0, done: 0, approved: 0, rejected: 0 });
+        id: r.reporter_id, name: r.reporter_id, vsm: '', submitted: 0, done: 0, approved: 0, rejected: 0, cats: newCats() });
       m.submitted++;
-      if (r.status === 'done') m.done++;
       if (r.safety_result === 'approved') m.approved++;
-      if (r.safety_result === 'rejected') m.rejected++;
+      if (['rejected', 'duplicate', 'not_cardinal'].includes(r.safety_result)) m.rejected++;
+      // ข้อ 4: นับผลงาน (done/cats/โบนัส) เฉพาะ Safety อนุมัติ + ดำเนินการจนจบ เท่านั้น
+      if (isCounted(r)) { m.done++; if (m.cats[r.category] != null) m.cats[r.category]++; }
     }
     const people = Object.values(map).map(m => {
       m.missing = Math.max(0, target - m.done);
-      m.bonus = bonusPct(m.done);
+      m.bonus = bonusFromCats(m.cats);
       return m;
     }).sort((a, b) => b.done - a.done);
     return ok({ year, target, people });
@@ -479,15 +619,15 @@ async function reportRoute(env, url, seg) {
 
   if (kind === 'overview') {
     const rows = (await env.DB.prepare(
-      'SELECT vsm,category,status FROM psif WHERE year=?').bind(year).all()).results;
+      'SELECT vsm,category,status,safety_result FROM psif WHERE year=?').bind(year).all()).results;
     const byVsm = {}, byCat = {};
     let total = 0, done = 0;
     for (const r of rows) {
-      total++; if (r.status === 'done') done++;
+      total++; if (isCounted(r)) done++;   // ข้อ 4: "done" = อนุมัติ + จบงาน เท่านั้น
       const v = (byVsm[r.vsm || '-'] ||= { vsm: r.vsm || '-', total: 0, done: 0 });
-      v.total++; if (r.status === 'done') v.done++;
+      v.total++; if (isCounted(r)) v.done++;
       const c = (byCat[r.category || '-'] ||= { category: r.category || '-', total: 0, done: 0 });
-      c.total++; if (r.status === 'done') c.done++;
+      c.total++; if (isCounted(r)) c.done++;
     }
     return ok({
       year, total, done,
@@ -498,10 +638,14 @@ async function reportRoute(env, url, seg) {
   return err('unknown report', 404);
 }
 
-// req #13 bonus tiers: 4->5%, 5->7.5%, >=6 ->10%
-function bonusPct(done) {
-  if (done >= 6) return 10;
-  if (done === 5) return 7.5;
-  if (done === 4) return 5;
-  return 0;
+/* โบนัสแบบบวกสะสม (ให้ตรงกับ frontend): ผ่าน PSIF(Con)≥2 = 5% พื้นฐาน ·
+ * ครบ Near miss ≥2 = +2.5% · ครบ PSIF(Behavior) ≥2 = +2.5% (สูงสุด 10%)
+ * นับจาก cats ที่ผ่านเกณฑ์ข้อ 4 แล้วเท่านั้น */
+function bonusFromCats(cats) {
+  const con = cats['PSIF'] || 0, beh = cats['Behavior'] || 0, nm = cats['Near miss'] || 0;
+  if (con < 2) return 0;
+  let b = 5;
+  if (nm >= 2) b += 2.5;
+  if (beh >= 2) b += 2.5;
+  return b;
 }

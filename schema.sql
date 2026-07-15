@@ -8,8 +8,10 @@
 CREATE TABLE IF NOT EXISTS employees (
   id        TEXT PRIMARY KEY,          -- employee code, e.g. L-1827
   name      TEXT NOT NULL,
-  vsm       TEXT DEFAULT '',           -- unit / VSM / department
-  role      TEXT DEFAULT 'user',       -- 'user' | 'safety' | 'admin'
+  vsm       TEXT DEFAULT '',           -- unit / VSM / department (= "แผนก" ที่ใช้ scope สิทธิ์ dept_admin)
+  -- 'user' | 'teamleader' | 'manager' | 'dept_admin' (Admin แผนก: เห็น/จัดการเฉพาะแผนกตัวเอง ไม่มีตั้งค่า)
+  -- | 'safety' (ตรวจสอบ/อนุมัติ ไม่มีตั้งค่า) | 'admin' (= Super Admin: ทุกแผนก + ตั้งค่า)
+  role      TEXT DEFAULT 'user',
   active    INTEGER DEFAULT 1
 );
 
@@ -67,6 +69,7 @@ CREATE TABLE IF NOT EXISTS psif (
   done_by       TEXT DEFAULT '',
   done_at       TEXT DEFAULT '',
   year          INTEGER NOT NULL,
+  request_id    TEXT DEFAULT '',          -- idempotency key จาก client กันบันทึกซ้ำ (ว่าง = ข้อมูลเก่า/นำเข้า)
   created_at    TEXT DEFAULT (datetime('now')),
   updated_at    TEXT DEFAULT (datetime('now'))
 );
@@ -74,6 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_psif_reporter ON psif(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_psif_status   ON psif(status);
 CREATE INDEX IF NOT EXISTS idx_psif_year     ON psif(year);
 CREATE INDEX IF NOT EXISTS idx_psif_vsm      ON psif(vsm);
+-- unique กันบันทึกซ้ำระดับข้อมูล (DB ที่มีอยู่แล้ว: รัน migrate-2026-07-15-idempotency.sql แทน)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_psif_request_id ON psif(request_id) WHERE request_id <> '';
 
 -- ---------- photos (R2 object keys) ----------
 -- req #2: a 'before' photo is required to create; an 'after' photo to close.

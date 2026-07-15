@@ -466,13 +466,14 @@ label.fl{font-weight:600;letter-spacing:.2px}
     <div class="lock-err" id="lockErr"></div>
     <button class="btn btn-blue btn-block" style="margin-top:10px" onclick="doLogin()">เข้าสู่ระบบ →</button>
     <div class="lock-foot">ตัวอย่าง: L-1827, G-260, PST742</div>
+    <div class="lock-foot" style="margin-top:4px;opacity:.75">PSIF <span class="app-ver"></span></div>
   </div>
 </div>
 
 <!-- ============ APP ============ -->
 <div id="app" class="hidden">
   <div class="appbar">
-    <div class="brandrow"><span class="tnc">TENNECO</span><span class="apptag">PSIF</span></div>
+    <div class="brandrow"><span class="tnc">TENNECO</span><span class="apptag">PSIF <span class="app-ver"></span></span></div>
     <div class="sp"></div>
     <div class="who" id="who"></div>
     <button class="iconbtn bell" title="การแจ้งเตือน" onclick="openNotifs()">🔔<span id="notifBadge" class="nbadge hidden"></span></button>
@@ -497,7 +498,11 @@ label.fl{font-weight:600;letter-spacing:.2px}
   <!-- ===== TRACKER / LIST ===== -->
   <div class="pane" id="pane-list">
     <div class="wrap">
-      <h2 style="font-size:18px;margin-bottom:8px">🗂️ ติดตามงาน</h2>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="font-size:18px">🗂️ ติดตามงาน</h2>
+        <!-- ข้อ 5: Report เป็นไฟล์ Excel (.xlsx) — เห็นเฉพาะ Admin แผนก / Safety / Super Admin -->
+        <button class="btn btn-green btn-sm hidden" id="reportBtn" onclick="exportReportXlsx()">📊 Report</button>
+      </div>
       <div id="listScopeBar"></div>
       <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="listPage=1;renderList()" style="margin-bottom:8px">
       <div class="chips" id="listChips"></div>
@@ -516,7 +521,7 @@ label.fl{font-weight:600;letter-spacing:.2px}
           <div><label class="fl">หน่วยงาน / VSM (อัตโนมัติ)</label><input class="inp" id="cVsm" readonly style="background:var(--blue-light)" placeholder="ระบบระบุจากรหัสพนักงาน"></div>
         </div>
         <label class="fl">ประเภท <span class="req">*</span></label>
-        <select class="inp" id="cCat"></select>
+        <select class="inp" id="cCat" onchange="onCatChange()"></select>
         <div class="grid g2">
           <div><label class="fl">พื้นที่ <span class="req">*</span></label><input class="inp" id="cArea" list="areaList" placeholder="เลือก/พิมพ์พื้นที่" oninput="onAreaChange()"></div>
           <div><label class="fl" id="cMachineLbl">เครื่องจักร / จุด</label><input class="inp" id="cMachine" list="machineList" placeholder="เช่น เครื่อง A-12"></div>
@@ -527,16 +532,19 @@ label.fl{font-weight:600;letter-spacing:.2px}
         <div id="dupeHint"></div>
         <label class="fl">ข้อเสนอแนะการแก้ไข <span class="req">*</span></label>
         <textarea class="inp" id="cSuggest" placeholder="ควรแก้ไขอย่างไร"></textarea>
-        <label class="fl">รูปภาพก่อนแก้ไข <span class="req">* (บังคับ)</span></label>
-        <div class="dropzone" id="cPhotoZone" onclick="triggerPhoto('cPhoto',false)">
-          📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ
+        <!-- ข้อ 2: ช่องแนบรูปแสดงเฉพาะประเภท PSIF (Con) — ประเภทอื่นซ่อนทั้งก้อนและไม่ validate -->
+        <div id="cPhotoWrap">
+          <label class="fl">รูปภาพก่อนแก้ไข <span class="req">* (บังคับเฉพาะ PSIF (Con))</span></label>
+          <div class="dropzone" id="cPhotoZone" onclick="triggerPhoto('cPhoto',false)">
+            📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',true)">📷 ถ่ายรูป</button>
+            <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',false)">🖼️ เลือกจากมือถือ</button>
+          </div>
+          <input type="file" id="cPhoto" accept="image/*" class="hidden" onchange="onPickPhoto(this,'before')">
         </div>
-        <div class="row" style="margin-top:8px">
-          <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',true)">📷 ถ่ายรูป</button>
-          <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('cPhoto',false)">🖼️ เลือกจากมือถือ</button>
-        </div>
-        <input type="file" id="cPhoto" accept="image/*" class="hidden" onchange="onPickPhoto(this,'before')">
-        <button class="btn btn-blue btn-block" style="margin-top:16px" onclick="submitPsif()">💾 บันทึกเข้าระบบ</button>
+        <button class="btn btn-blue btn-block" id="submitBtn" style="margin-top:16px" onclick="submitPsif()">💾 บันทึกเข้าระบบ</button>
       </div>
     </div>
   </div>
@@ -602,6 +610,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
+const APP_VERSION='1.0';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตเมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -642,7 +651,7 @@ function bonusFromCats(cats){
   if(beh>=2) b+=2.5;
   return b;
 }
-const BONUS_RULE_TXT='เงื่อนไขโบนัส: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%';
+const BONUS_RULE_TXT='เงื่อนไขโบนัส: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%<br>⚖️ นับเฉพาะเรื่องที่ <b>Safety อนุมัติ</b> และ <b>ดำเนินการจนจบ</b> เท่านั้น';
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -655,9 +664,13 @@ async function api(path,opts={}){
   const url = API.replace(/\/+$/,'') + path;
   busy(true);
   try{
+    // ข้อ 3/6: ส่งรหัสพนักงานไปกับทุกคำขอ — backend ใช้ค้น role/แผนกจากตาราง employees เอง
+    const headers={};
+    if(!opts.form) headers['Content-Type']='application/json';
+    if(CURRENT_USER&&CURRENT_USER.id) headers['X-Emp-Id']=encodeURIComponent(CURRENT_USER.id);
     const res = await fetch(url,{
       method: opts.method || ((opts.body||opts.form)?'POST':'GET'),
-      headers: opts.form?undefined:{'Content-Type':'application/json'},
+      headers,
       body: opts.form?opts.form:(opts.body?JSON.stringify(opts.body):undefined),
     });
     const data = await res.json().catch(()=>({ok:false,error:'invalid response'}));
@@ -704,8 +717,8 @@ async function createPsif(rec,photos){
       created_at:new Date().toISOString().slice(0,19).replace('T',' '),
       photos:photos||[], ...rec};
     state.items.unshift(item);
-    // demo: แจ้งเตือนกลุ่ม Admin/Manager (safety+admin) เมื่อมีเรื่องใหม่
-    state.employees.filter(e=>(e.role==='admin'||e.role==='safety')&&e.id!==item.reporter_id)
+    // demo: แจ้งเตือนกลุ่มผู้ดูแล (safety+super admin+admin แผนกของหน่วยงานนั้น) เมื่อมีเรื่องใหม่
+    state.employees.filter(e=>(e.role==='admin'||e.role==='safety'||(e.role==='dept_admin'&&(e.vsm||'')===(item.vsm||'')))&&e.id!==item.reporter_id)
       .forEach(e=>localNotify(e.id,item.id,`🆕 เรื่องใหม่จาก ${item.reporter_name||item.reporter_id}: "${(item.title||'').slice(0,40)}"`));
     demoSave(); return item;
   }
@@ -904,25 +917,38 @@ async function doLogin(){
   LS.set('psif_user',CURRENT_USER);
   enterApp();
 }
-/* สิทธิ์ผู้ใช้ 5 ระดับ (req: เพิ่ม Team Leader / Manager)
+/* สิทธิ์ผู้ใช้ 6 ระดับ (ข้อ 3: แยก Admin เป็น 2 ระดับ)
    user = พนักงานทั่วไป · teamleader = หัวหน้าทีม เห็นรายคนใน VSM ตัวเอง ·
-   manager = ผู้จัดการ เห็นรายคนในแผนกตัวเอง · safety/admin = เห็นทุกกลุ่ม */
-const ROLE_LABEL={user:'พนักงาน',teamleader:'Team Leader',manager:'Manager',safety:'Safety',admin:'Admin'};
+   manager = ผู้จัดการ เห็นรายคนในแผนกตัวเอง · safety = ตรวจสอบ/อนุมัติ (เข้าตั้งค่าไม่ได้ — ข้อ 6) ·
+   dept_admin = Admin แผนก: ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ช่องหน่วยงาน/VSM = แผนก) เข้าตั้งค่าไม่ได้ ·
+   admin = Super Admin: ทุกแผนก + หน้าตั้งค่า */
+const ROLE_LABEL={user:'พนักงาน',teamleader:'Team Leader',manager:'Manager',dept_admin:'Admin แผนก',safety:'Safety',admin:'Super Admin'};
 const roleLabel=r=>ROLE_LABEL[r]||r||'user';
 function enterApp(){
   $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
   const roleTxt = (CURRENT_USER.role&&CURRENT_USER.role!=='user') ? ' · '+roleLabel(CURRENT_USER.role) : '';
   $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+esc(roleTxt);
+  listScope = isDeptAdmin() ? 'all' : 'mine';   // Admin แผนก เริ่มที่มุมมอง "แผนกของฉัน"
   renderNav(); fillStaticUI(); setPane('home');
+  // โหลดรายการใหม่หลังรู้ตัวตน — ตอน bootstrap ยังไม่ล็อกอิน backend จึงยัง scope ตามแผนกให้ไม่ได้ (ข้อ 3)
+  if(online()) reloadItems().then(()=>refreshAll()).catch(()=>{});
   loadNotifs().catch(()=>{});
   clearInterval(_notifT); _notifT=setInterval(()=>loadNotifs().catch(()=>{}),60000);
 }
 function logout(){ LS.set('psif_user',null); CURRENT_USER=null; adminUnlocked=false; location.reload(); }
-function isAdmin(){ return CURRENT_USER && (CURRENT_USER.role==='admin' || adminUnlocked); }
-function isSafety(){ return CURRENT_USER && (CURRENT_USER.role==='safety' || CURRENT_USER.role==='admin' || adminUnlocked); }
+/* ---- ข้อ 3: helper สิทธิ์ (การเช็คจริงอยู่ที่ backend — ตรงนี้คุม UI เท่านั้น) ----
+   adminUnlocked (รหัสผ่าน) ใช้ได้เฉพาะโหมดทดลอง/ออฟไลน์ — โหมดออนไลน์ backend เช็ค role จาก DB
+   จึงปลดล็อกด้วยรหัสผ่านไม่ได้อีกต่อไป (กันช่องโหว่ข้อ 3/6) */
+function isSuperAdmin(){ return CURRENT_USER && (CURRENT_USER.role==='admin' || (adminUnlocked && !online())); }
+function isAdmin(){ return isSuperAdmin(); }                 // ชื่อเดิม ใช้อยู่หลายจุด = Super Admin
+function isDeptAdmin(){ return CURRENT_USER && CURRENT_USER.role==='dept_admin'; }
+function isSafety(){ return CURRENT_USER && (CURRENT_USER.role==='safety' || isSuperAdmin()); }
+/* จัดการ (ออกเลข/ปิดงาน/แก้เนื้อหา) รายการนี้ได้ไหม: Super Admin ทุกแผนก · Admin แผนก เฉพาะแผนกตัวเอง */
+function canManage(it){ return isSuperAdmin() || (isDeptAdmin() && ((it&&it.vsm)||'').trim()===myVsm()); }
 function requireAdmin(){
-  if(isAdmin()) return true;
-  const pw=prompt('🔐 เฉพาะ Admin — กรอกรหัสผ่าน:'); if(pw==null)return false;
+  if(isSuperAdmin()) return true;
+  if(online()){ toast('เฉพาะ Super Admin เท่านั้น','red'); return false; }
+  const pw=prompt('🔐 เฉพาะ Admin (โหมดทดลอง) — กรอกรหัสผ่าน:'); if(pw==null)return false;
   if(pw!==ADMIN_PASSWORD){ toast('รหัสผ่านไม่ถูกต้อง','red'); return false; }
   adminUnlocked=true; renderNav(); toast('🔓 ปลดล็อก Admin','green'); return true;
 }
@@ -932,10 +958,16 @@ function navBtn(pane,ico,lbl,cls=''){
   return `<button data-pane="${pane}" class="${cls}" onclick="setPane('${pane}')"><span class="ico">${ico}</span><span class="lbl">${lbl}</span></button>`;
 }
 function renderNav(){
-  $('bnav').innerHTML = isSafety()
-    ? navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
-      navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า')
-    : navBtn('home','📊','แดชบอร์ด')+navBtn('create','✏️','บันทึก','fab')+navBtn('list','🗂️','ติดตาม');
+  let html;
+  if(isSuperAdmin())                                   // Super Admin: ครบทุกเมนูรวมตั้งค่า
+    html = navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
+           navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า');
+  else if(isSafety())                                  // Safety: ไม่มีเมนูตั้งค่า (ข้อ 6)
+    html = navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
+           navBtn('safety','🛡️','Safety');
+  else                                                 // user / TL / manager / Admin แผนก (สิทธิ์เพิ่มอยู่ในหน้าติดตาม)
+    html = navBtn('home','📊','แดชบอร์ด')+navBtn('create','✏️','บันทึก','fab')+navBtn('list','🗂️','ติดตาม');
+  $('bnav').innerHTML = html;
   const active=document.querySelector('.pane.active');
   const cur=active?active.id.replace('pane-',''):'home';
   document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===cur));
@@ -966,8 +998,9 @@ function fillStaticUI(){
 /* ---------------- navigation ---------------- */
 let dashWide = LS.get('psif_dashwide',false);
 function setPane(p){
-  // req #1: Safety/ตั้งค่า เฉพาะ Safety & Admin — user ที่พยายามเข้า ถูกส่งกลับหน้าแดชบอร์ด
-  if((p==='safety'||p==='settings') && !isSafety()){ p='home'; }
+  // ข้อ 3/6: ตั้งค่า = Super Admin เท่านั้น (Safety/Admin แผนก เข้าไม่ได้) · Safety pane = Safety & Super Admin
+  if(p==='settings' && !isSuperAdmin()){ p='home'; }
+  if(p==='safety' && !isSafety()){ p='home'; }
   document.querySelectorAll('.pane').forEach(el=>el.classList.remove('active'));
   $('pane-'+p).classList.add('active');
   document.querySelectorAll('.bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===p));
@@ -983,7 +1016,13 @@ function setPane(p){
  *  CREATE
  * ==================================================================== */
 let pendingPhoto=null;
-function refreshCreate(){ fillStaticUI(); onAreaChange(); }
+function refreshCreate(){ fillStaticUI(); onAreaChange(); onCatChange(); }
+/* ข้อ 2: ประเภทที่บังคับแนบรูป = PSIF (Con) เท่านั้น (ค่าที่เก็บใน DB คือ 'PSIF') */
+function catIsCon(v){ v=(v||'').trim().toLowerCase(); return v==='psif'||v==='psif (con)'||v==='psif(con)'; }
+function onCatChange(){
+  const el=$('cPhotoWrap'); if(!el) return;
+  el.classList.toggle('hidden', !catIsCon($('cCat').value));   // ประเภทอื่นซ่อนช่องอัปโหลดทั้งก้อน
+}
 /* เปิดกล้อง (ถ่ายรูป) หรือคลังรูปในมือถือ (เลือกรูป) จาก input เดียวกัน
    useCamera=true → บังคับกล้อง, useCamera=false → เปิดคลังรูป/ไฟล์ให้เลือกเอง */
 function triggerPhoto(inputId,useCamera){
@@ -1020,30 +1059,46 @@ function liveDupe(){ clearTimeout(_dupeT); _dupeT=setTimeout(async()=>{
   const c=await findDupes(autoTitle(t),$('cMachine').value.trim());
   $('dupeHint').innerHTML = c.length? `<div class="warn">⚠️ อาจซ้ำกับ ${c.length} เรื่อง: ${c.slice(0,3).map(x=>esc(x.title)).join(' · ')}</div>`:'';
 },450); }
+/* ข้อ 1: กันบันทึกซ้ำ — flag isSubmitting + disable ปุ่มทันที + requestId (UUID) ให้ backend dedupe
+   ปุ่มผูก onclick แบบ inline จุดเดียว (ไม่มี addEventListener ซ้อน) ช่องโหว่จริงคือ double-click
+   ระหว่างรอ upload/API — flag ครอบตั้งแต่เข้า function ถึง finally จึงกันครบทุกช่วง */
+let _submitting=false, _submitReqId=null;
+function newReqId(){ return (crypto&&crypto.randomUUID)?crypto.randomUUID():('req-'+Date.now()+'-'+Math.random().toString(36).slice(2,10)); }
 async function submitPsif(){
-  const cat=$('cCat').value, area=$('cArea').value.trim(), machine=$('cMachine').value.trim();
-  const detail=$('cDetail').value.trim(), suggest=$('cSuggest').value.trim();
-  if(!cat){ toast('เลือกประเภท','red'); return; }
-  if(!area){ toast('กรอกพื้นที่','red'); return; }
-  if(areaIsVsm(area) && !machine){ toast('พื้นที่ VSM ต้องระบุเครื่องจักร','red'); $('cMachine').focus(); return; }
-  if(!detail){ toast('กรอกรายละเอียด','red'); return; }
-  if(!suggest){ toast('กรอกข้อเสนอแนะการแก้ไข','red'); return; }
-  if(!pendingPhoto){ toast('ต้องแนบรูปก่อนแก้ไข','red'); return; }
-  const title=autoTitle(detail);
-  const dupes=await findDupes(title,machine);
-  if(dupes.length){ if(!await confirmDupe(dupes)) return; }
+  if(_submitting) return;                       // double-click / double-fire → เด้งออกทันที
+  _submitting=true;
+  const sb=$('submitBtn'); if(sb){ sb.disabled=true; sb.textContent='⏳ กำลังบันทึก...'; }
   try{
-    const photo=await uploadPhoto(pendingPhoto.file,'before');
+    const cat=$('cCat').value, area=$('cArea').value.trim(), machine=$('cMachine').value.trim();
+    const detail=$('cDetail').value.trim(), suggest=$('cSuggest').value.trim();
+    if(!cat){ toast('เลือกประเภท','red'); return; }
+    if(!area){ toast('กรอกพื้นที่','red'); return; }
+    if(areaIsVsm(area) && !machine){ toast('พื้นที่ VSM ต้องระบุเครื่องจักร','red'); $('cMachine').focus(); return; }
+    if(!detail){ toast('กรอกรายละเอียด','red'); return; }
+    if(!suggest){ toast('กรอกข้อเสนอแนะการแก้ไข','red'); return; }
+    const needPhoto=catIsCon(cat);              // ข้อ 2: บังคับรูปเฉพาะ PSIF (Con)
+    if(needPhoto && !pendingPhoto){ toast('ประเภท PSIF (Con) ต้องแนบรูปก่อนแก้ไข','red'); return; }
+    const title=autoTitle(detail);
+    const dupes=await findDupes(title,machine);
+    if(dupes.length){ if(!await confirmDupe(dupes)) return; }
+    // requestId เดิมถูกใช้ซ้ำเมื่อ retry ครั้งก่อนล้มเหลว — ถ้าครั้งก่อน server บันทึกไปแล้ว จะได้ record เดิมคืน ไม่เกิดซ้ำ
+    _submitReqId = _submitReqId || newReqId();
+    const photos = (needPhoto && pendingPhoto) ? [await uploadPhoto(pendingPhoto.file,'before')] : [];
     const rec={reporter_id:CURRENT_USER.id,reporter_name:CURRENT_USER.name,vsm:$('cVsm').value.trim(),
-      area_id:area,machine,category:cat,title,detail,suggestion:suggest,year:yr()};
-    await createPsif(rec,[photo]);
+      area_id:area,machine,category:cat,title,detail,suggestion:suggest,year:yr(),request_id:_submitReqId};
+    await createPsif(rec,photos);
+    _submitReqId=null;                          // สำเร็จแล้ว — ฟอร์มใหม่ = requestId ใหม่
     toast('✅ บันทึกเข้าระบบแล้ว','green');
     ['cDetail','cSuggest','cMachine','cArea'].forEach(id=>$(id).value='');
     $('cCat').value='';
-    pendingPhoto=null; const z=$('cPhotoZone'); z.classList.remove('has'); z.innerHTML='📷 แตะเพื่อถ่ายรูป / เลือกรูป';
-    $('dupeHint').innerHTML=''; onAreaChange();
+    pendingPhoto=null; const z=$('cPhotoZone'); z.classList.remove('has'); z.innerHTML='📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ';
+    $('dupeHint').innerHTML=''; onAreaChange(); onCatChange();
     setPane('list');
   }catch(e){ toast('บันทึกไม่สำเร็จ: '+e.message,'red'); }
+  finally{
+    _submitting=false;
+    if(sb){ sb.disabled=false; sb.textContent='💾 บันทึกเข้าระบบ'; }
+  }
 }
 function confirmDupe(dupes){
   return new Promise(resolve=>{
@@ -1108,6 +1163,9 @@ function safetyKind(it){
   return 'pending';
 }
 function isRejected(it){ return REJECT_KINDS.includes(safetyKind(it)); }
+/* ข้อ 4: "นับผลงาน" (KPI/โบนัส/เป้า) เฉพาะรายการที่เข้าทั้ง 2 เงื่อนไข:
+   1) Safety ตรวจสอบแล้ว = อนุมัติ  2) ดำเนินการจนจบ (done) — นอกนั้นไม่นับทุกกรณี */
+function isCounted(it){ return !!it && it.safety_result==='approved' && it.status==='done'; }
 function stageOf(it){
   const k=safetyKind(it);
   if(REJECT_KINDS.includes(k)) return k;   // duplicate / not_cardinal / rejected
@@ -1131,10 +1189,30 @@ function statusBadge(it){
   if(it.status==='safety'&&k==='approved') return '<span class="badge b-purple" style="background:var(--purple-bg);color:var(--purple);border-color:#DDD6FE">Safety อนุมัติ</span>';
   const s=STATUS[it.status]||STATUS.recorded; return `<span class="badge ${s.cls}">${s.label}</span>`;
 }
+/* base ตาม scope ที่เลือก — ใช้ร่วมกันทั้ง renderList และ export Report (ข้อ 5)
+   Admin แผนก: backend ส่งมาเฉพาะแผนกอยู่แล้ว (ข้อ 3) แต่กรองซ้ำฝั่งนี้กันเหนียว */
+function listBaseItems(){
+  let base=state.items.slice();
+  if(isDeptAdmin()) base=base.filter(i=>((i.vsm||'').trim()===myVsm()) || i.reporter_id===CURRENT_USER.id);
+  if(listScope==='mine') base=base.filter(i=>i.reporter_id===CURRENT_USER.id);
+  else if(listScope!=='all') base=base.filter(i=>i.vsm===listScope);
+  return base;
+}
+/* รายการหลังกรองครบ (scope + สถานะ + ค้นหา) — ไม่รวมแบ่งหน้า */
+function listFilteredItems(){
+  const q=norm($('listSearch').value);
+  let arr=listBaseItems();
+  if(listFilter!=='all') arr=arr.filter(i=>stageOf(i)===listFilter);
+  if(q) arr=arr.filter(i=>norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')).includes(q));
+  return arr;
+}
 function renderList(){
   const canAll=isSafety(); // admin หรือ safety เห็นได้มากกว่าของตัวเอง
-  if(!canAll) listScope='mine';
-  // scope bar (เฉพาะ admin/safety): ของฉัน · ทั้งหมด · เลือกแผนก
+  const deptOnly=isDeptAdmin();
+  if(!canAll && !deptOnly) listScope='mine';
+  // ข้อ 5: ปุ่ม Report (.xlsx) — เฉพาะ Admin แผนก / Safety / Super Admin
+  const rb=$('reportBtn'); if(rb) rb.classList.toggle('hidden', !(canAll||deptOnly));
+  // scope bar: admin/safety = ของฉัน·ทั้งหมด·เลือกแผนก · admin แผนก = ของฉัน·แผนกของฉัน
   const scopeEl=$('listScopeBar');
   if(canAll){
     const depts=[...new Set(state.employees.map(e=>e.vsm).filter(Boolean))].sort();
@@ -1146,21 +1224,21 @@ function renderList(){
         ${depts.map(d=>`<option value="${esc(d)}" ${listScope===d?'selected':''}>${esc(d)}</option>`).join('')}
       </select>
     </div>`;
+  } else if(deptOnly){
+    if(listScope!=='mine') listScope='all';   // 'all' ของ Admin แผนก = ทั้งแผนกตัวเอง (ถูก scope แล้ว)
+    scopeEl.innerHTML=`<div class="row" style="gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <button class="chip ${listScope==='mine'?'on':''}" onclick="listScope='mine';listPage=1;renderList()">🙋 ของฉัน</button>
+      <button class="chip ${listScope==='all'?'on':''}" onclick="listScope='all';listPage=1;renderList()">🏭 แผนกของฉัน (${esc(myVsm()||'-')})</button>
+    </div>`;
   } else { scopeEl.innerHTML=''; }
-  // base ตาม scope
-  let base=state.items.slice();
-  if(listScope==='mine') base=base.filter(i=>i.reporter_id===CURRENT_USER.id);
-  else if(listScope!=='all') base=base.filter(i=>i.vsm===listScope);
   // status chips (นับจาก base)
+  const base=listBaseItems();
   const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('listChips').innerHTML=chips.map(([k,l])=>{
     const n=k==='all'?base.length:base.filter(i=>stageOf(i)===k).length;
     return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
   }).join('');
-  const q=norm($('listSearch').value);
-  let arr=base;
-  if(listFilter!=='all') arr=arr.filter(i=>stageOf(i)===listFilter);
-  if(q) arr=arr.filter(i=>norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')).includes(q));
+  const arr=listFilteredItems();
   // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
   const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(listPage>pages) listPage=pages; if(listPage<1) listPage=1;
   const pageArr=arr.slice((listPage-1)*PAGE_SIZE, listPage*PAGE_SIZE);
@@ -1198,9 +1276,10 @@ function openItem(id){
   const it=state.items.find(x=>x.id==id); if(!it)return;
   const before=(it.photos||[]).filter(p=>p.kind==='before');
   const after=(it.photos||[]).filter(p=>p.kind==='after');
+  // ข้อ 3: Admin แผนก (dept_admin) ออกเลข/ปิดงาน/แก้เนื้อหาได้เฉพาะรายการแผนกตัวเอง (canManage)
   const canSafety = isSafety() && it.status==='recorded';
-  const canIssueNo = isAdmin() && it.status==='safety' && it.safety_result==='approved';
-  const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || isAdmin());
+  const canIssueNo = canManage(it) && it.status==='safety' && it.safety_result==='approved';
+  const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || canManage(it));
   let actions='';
   if(canSafety) actions+=`<div class="note" style="margin-bottom:8px">Safety พิจารณา — เลือก 1 สถานะ</div>
     <button class="btn btn-green btn-block" onclick="safetyAct(${id},'approved')">✅ อนุมัติ</button>
@@ -1213,9 +1292,9 @@ function openItem(id){
          <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-orange" onclick="issueNo(${id})">เริ่มดำเนินการ</button></div>`
       : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
   }
-  if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน (แนบรูปหลังแก้ไข)</button>`;
-  if(isSafety()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
-  if(isAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
+  if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน${catIsCon(it.category)?' (แนบรูปหลังแก้ไข)':''}</button>`;
+  if(isSafety()||canManage(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
+  if(isSuperAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
 
   openModal('รายละเอียด PSIF', `
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">${statusBadge(it)}<span class="sub">${esc(it.created_at||'')}</span></div>
@@ -1265,33 +1344,42 @@ async function issueNo(id){
   await patchPsif(id,{no,status:'inprogress'});
   toast('เริ่มดำเนินการแล้ว','green'); closeModal(); refreshAll();
 }
-let closingId=null, closePhoto=null;
+let closingId=null, closePhoto=null, closeNeedsPhoto=false;
 function openClose(id){
+  const it=state.items.find(x=>x.id==id);
   closingId=id; closePhoto=null;
-  openModal('🏁 ปิดงาน', `
-    <label class="fl">สรุปการแก้ไข</label>
-    <textarea class="inp" id="closeDetail" placeholder="อธิบายสิ่งที่แก้ไข"></textarea>
+  closeNeedsPhoto=catIsCon(it&&it.category);   // ข้อ 2: รูปหลังแก้ไขบังคับเฉพาะ PSIF (Con) — ประเภทอื่นซ่อนช่องอัปโหลด
+  const photoPart=closeNeedsPhoto?`
     <label class="fl">รูปหลังแก้ไข <span class="req">* (บังคับ)</span></label>
     <div class="dropzone" id="closeZone" onclick="triggerPhoto('closePhotoInput',false)">📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ</div>
     <div class="row" style="margin-top:8px">
       <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',true)">📷 ถ่ายรูป</button>
       <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',false)">🖼️ เลือกจากมือถือ</button>
     </div>
-    <input type="file" id="closePhotoInput" accept="image/*" class="hidden" onchange="onClosePhoto(this)">
-    <button class="btn btn-green btn-block" style="margin-top:14px" onclick="doClose()">ยืนยันปิดงาน</button>`);
+    <input type="file" id="closePhotoInput" accept="image/*" class="hidden" onchange="onClosePhoto(this)">`:'';
+  openModal('🏁 ปิดงาน', `
+    <label class="fl">สรุปการแก้ไข</label>
+    <textarea class="inp" id="closeDetail" placeholder="อธิบายสิ่งที่แก้ไข"></textarea>
+    ${photoPart}
+    <button class="btn btn-green btn-block" id="closeBtn" style="margin-top:14px" onclick="doClose()">ยืนยันปิดงาน</button>`);
 }
 async function onClosePhoto(input){
   const f=input.files[0]; if(!f)return;
   const {dataURL}=await resizeImage(f); closePhoto=f;
   const z=$('closeZone'); z.classList.add('has'); z.innerHTML=`<img src="${dataURL}" style="max-height:150px;border-radius:8px">`;
 }
+let _closingBusy=false;   // ข้อ 1: กันกดปุ่ม "ยืนยันปิดงาน" ซ้ำระหว่างรอ upload/API
 async function doClose(){
-  if(!closePhoto){toast('ต้องแนบรูปหลังแก้ไข','red');return;}
+  if(_closingBusy) return;
+  if(closeNeedsPhoto && !closePhoto){toast('ประเภท PSIF (Con) ต้องแนบรูปหลังแก้ไข','red');return;}
+  _closingBusy=true;
+  const cb=$('closeBtn'); if(cb){ cb.disabled=true; cb.textContent='⏳ กำลังปิดงาน...'; }
   try{
-    const photo=await uploadPhoto(closePhoto,'after',closingId);
-    await patchPsif(closingId,{status:'done',done_by:CURRENT_USER.id,done_at:new Date().toISOString().slice(0,19).replace('T',' '),done_detail:$('closeDetail').value.trim()},[photo]);
+    const photos=(closeNeedsPhoto&&closePhoto)?[await uploadPhoto(closePhoto,'after',closingId)]:undefined;
+    await patchPsif(closingId,{status:'done',done_by:CURRENT_USER.id,done_at:new Date().toISOString().slice(0,19).replace('T',' '),done_detail:$('closeDetail').value.trim()},photos);
     toast('✅ ปิดงานเรียบร้อย','green'); closeModal(); refreshAll();
   }catch(e){ toast('ปิดงานไม่สำเร็จ: '+e.message,'red'); }
+  finally{ _closingBusy=false; const b=$('closeBtn'); if(b){ b.disabled=false; b.textContent='ยืนยันปิดงาน'; } }
 }
 async function delItem(id){ await deletePsif(id); toast('ลบแล้ว'); closeModal(); refreshAll(); }
 
@@ -1350,14 +1438,20 @@ function targetFor(y){ const t=state.targets.find(x=>x.year==y); return t?t.per_
 const CAT_TARGET=2;
 const CAT_KEYS=['PSIF','Near miss','Behavior'];
 function newCatMap(){ return {PSIF:0,'Near miss':0,Behavior:0}; }
+/* พนักงานที่มองเห็นตามสิทธิ์ (ข้อ 3): Admin แผนก เห็นเฉพาะแผนกตัวเอง — คนอื่นเห็นทั้งหมด */
+function visibleEmployees(){
+  const base=state.employees.filter(e=>e.active!==0);
+  return isDeptAdmin()? base.filter(e=>(e.vsm||'').trim()===myVsm()) : base;
+}
 function computePerson(y){
   const target=targetFor(y);
   const map={};
-  state.employees.filter(e=>e.active!==0).forEach(e=>map[e.id]={id:e.id,name:e.name,vsm:e.vsm,submitted:0,done:0,approved:0,rejected:0,cats:newCatMap()});
+  visibleEmployees().forEach(e=>map[e.id]={id:e.id,name:e.name,vsm:e.vsm,submitted:0,done:0,approved:0,rejected:0,cats:newCatMap()});
   state.items.filter(i=>i.year==y).forEach(r=>{
     const m=map[r.reporter_id]||(map[r.reporter_id]={id:r.reporter_id,name:r.reporter_name||r.reporter_id,vsm:r.vsm||'',submitted:0,done:0,approved:0,rejected:0,cats:newCatMap()});
-    m.submitted++; if(r.status==='done')m.done++; if(r.safety_result==='approved')m.approved++; if(isRejected(r))m.rejected++;
-    if(m.cats[r.category]!=null) m.cats[r.category]++;
+    m.submitted++; if(r.safety_result==='approved')m.approved++; if(isRejected(r))m.rejected++;
+    // ข้อ 4: done / cats (ใช้คิดเป้า+โบนัส) นับเฉพาะ Safety อนุมัติ + จบงาน เท่านั้น
+    if(isCounted(r)){ m.done++; if(m.cats[r.category]!=null) m.cats[r.category]++; }
   });
   return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=bonusFromCats(m.cats);return m;}).sort((a,b)=>b.bonus-a.bonus||b.submitted-a.submitted||b.done-a.done)};
 }
@@ -1445,10 +1539,11 @@ function deptTargetBars(rows){
     </div>`;
   }).join('');
 }
-/* รวมข้อมูลรายหน่วยงาน: จำนวนคน (headcount) + จำนวนเรื่องต่อประเภท */
+/* รวมข้อมูลรายหน่วยงาน: จำนวนคน (headcount) + จำนวนเรื่องต่อประเภท
+   (ผู้เรียกส่ง items ที่ผ่านเกณฑ์ข้อ 4 มาแล้ว — แท่งเทียบเป้าจึงนับเฉพาะ อนุมัติ+จบงาน) */
 function deptTargetData(items){
   const head={};
-  state.employees.filter(e=>e.active!==0).forEach(e=>{ const d=(e.vsm||'').trim()||'(ไม่ระบุ)'; head[d]=(head[d]||0)+1; });
+  visibleEmployees().forEach(e=>{ const d=(e.vsm||'').trim()||'(ไม่ระบุ)'; head[d]=(head[d]||0)+1; });
   const act={};
   items.forEach(i=>{ const d=(i.vsm||empVsm(i.reporter_id)||'(ไม่ระบุ)').trim();
     const o=(act[d]??={total:0,'PSIF':0,'Near miss':0,'Behavior':0}); o.total++; if(o[i.category]!=null)o[i.category]++; });
@@ -1462,33 +1557,39 @@ function renderDash(){
   applyDashWidth();
   const y=+($('dashYear').value||yr());
   // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
-  const teamChip=(['teamleader','manager'].includes(CURRENT_USER.role)&&myVsm())
+  const teamChip=((['teamleader','manager'].includes(CURRENT_USER.role)||isDeptAdmin())&&myVsm())
     ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
   $('dashScope').innerHTML=`
-    <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">🏭 ทั้งโรงงาน</button>
+    <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
     <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}`;
   if(dashMine){ renderMyDash(y); return; }
 
-  const items=state.items.filter(i=>i.year==y);
+  // ข้อ 3: Admin แผนก เห็นเฉพาะแผนกตัวเอง (backend scope แล้ว — กรองซ้ำกันเหนียว)
+  let items=state.items.filter(i=>i.year==y);
+  if(isDeptAdmin()) items=items.filter(i=>(i.vsm||'').trim()===myVsm());
   const c={recorded:0,safety:0,inprogress:0,done:0,not_cardinal:0,duplicate:0,rejected:0};
   items.forEach(i=>{ const s=stageOf(i); c[s]=(c[s]||0)+1; });
-  const total=items.length, done=c.done||0;
+  const total=items.length;
+  // ข้อ 4: KPI "นับผลงาน" = Safety อนุมัติ + ดำเนินการจนจบ เท่านั้น (ไม่ใช่แค่ status done)
+  const counted=items.filter(isCounted).length;
   const notPassed=(c.not_cardinal||0)+(c.duplicate||0)+(c.rejected||0);
   const target=targetFor(y);
-  const empCount=state.employees.filter(e=>e.active!==0).length||1;
+  const empCount=visibleEmployees().length||1;
   const plantTarget=target*empCount;
-  const pct=Math.min(100,Math.round(total/plantTarget*100));
+  const pctSub=Math.min(100,Math.round(total/plantTarget*100));       // % ที่ส่งแล้ว (ข้อมูลประกอบ)
+  const pct=Math.min(100,Math.round(counted/plantTarget*100));        // % ผลงานที่นับจริง เทียบเป้า
 
-  // ส่งรายเดือน
+  // ส่งรายเดือน (นับตามวันที่ส่ง — เป็นเมตริกการส่ง ไม่ใช่ KPI ผลงาน)
   const months=new Array(12).fill(0);
   items.forEach(i=>{ const mo=+String(i.created_at||'').slice(5,7); if(mo>=1&&mo<=12) months[mo-1]++; });
 
-  // แยกตามประเภท (PSIF(Con)/Near miss/PSIF(Behavior))
-  const catSub=newCatMap(); items.forEach(i=>{ if(catSub[i.category]!=null)catSub[i.category]++; });
+  // แยกตามประเภท — นับเฉพาะที่ผ่านเกณฑ์ข้อ 4
+  const countedItems=items.filter(isCounted);
+  const catSub=newCatMap(); countedItems.forEach(i=>{ if(catSub[i.category]!=null)catSub[i.category]++; });
   const catTarget=CAT_TARGET*empCount;
 
-  // แยกตามหน่วยงาน แยกเป็น 3 ประเภทเทียบ Target (req #3) — จำนวนคนจากทะเบียนพนักงาน
-  const deptRows=deptTargetData(items);
+  // แยกตามหน่วยงาน แยกเป็น 3 ประเภทเทียบ Target — นับเฉพาะที่ผ่านเกณฑ์ข้อ 4
+  const deptRows=deptTargetData(countedItems);
   const isVsm=d=>/^\s*vsm/i.test(d);
   // VSM เรียง VSM1 → VSM2 → VSM3 → VSM4 (req #3)
   const vsmRows=deptRows.filter(r=>isVsm(r.dept)).sort((a,b)=>vsmNum(a.dept)-vsmNum(b.dept));
@@ -1496,18 +1597,18 @@ function renderDash(){
   const deptEntries=deptRows.filter(r=>!isVsm(r.dept) && (r.head>0||r.act.total>0)).sort((a,b)=>b.act.total-a.act.total);
 
   const hero=`<div class="card dash-hero">
-    <div class="dh-title">🏭 TENNECO Chonburi Plant · ปี ${y}</div>
+    <div class="dh-title">🏭 ${isDeptAdmin()?esc(myVsm()||'แผนกของฉัน'):'TENNECO Chonburi Plant'} · ปี ${y}</div>
     <div class="dh-tiles">
       <div class="dh-tile target"><div class="dh-l">Target</div><div class="dh-n">${plantTarget.toLocaleString()}</div><div class="dh-s">${target} เรื่อง/คน/ปี × ${empCount.toLocaleString()} คน</div></div>
-      <div class="dh-tile"><div class="dh-l">ส่งแล้ว</div><div class="dh-n">${total.toLocaleString()}</div><div class="dh-s">${pct}% ของเป้าหมาย</div></div>
-      <div class="dh-tile done"><div class="dh-l">เสร็จ</div><div class="dh-n">${done.toLocaleString()}</div><div class="dh-s">${total?Math.round(done/total*100):0}% ของที่ส่ง</div></div>
+      <div class="dh-tile"><div class="dh-l">ส่งแล้ว</div><div class="dh-n">${total.toLocaleString()}</div><div class="dh-s">${pctSub}% ของเป้าหมาย</div></div>
+      <div class="dh-tile done"><div class="dh-l">นับผลงาน</div><div class="dh-n">${counted.toLocaleString()}</div><div class="dh-s">Safety อนุมัติ + จบงาน (${total?Math.round(counted/total*100):0}% ของที่ส่ง)</div></div>
     </div>
     <div class="dh-progress"><div class="dh-progress-fill" style="width:${pct}%"></div></div>
-    <div class="dh-progress-lbl">${total.toLocaleString()} / ${plantTarget.toLocaleString()} เรื่อง</div>
+    <div class="dh-progress-lbl">ผลงานที่นับ ${counted.toLocaleString()} / ${plantTarget.toLocaleString()} เรื่อง (เฉพาะอนุมัติ+จบงาน)</div>
   </div>`;
 
   const monthCard=`<div class="card"><h3>📅 ส่งรายเดือน — ปี ${y}</h3>${monthChart(months,plantTarget/12)}</div>`;
-  const catCard=dashTargetTable('🏷️ ประเภทของจุดเสี่ยงหรืออันตราย (PSIF)','ประเภท',
+  const catCard=dashTargetTable('🏷️ ประเภทของจุดเสี่ยงหรืออันตราย (PSIF) — นับเฉพาะอนุมัติ+จบงาน','ประเภท',
     CAT_KEYS.map(k=>({label:catLabel(k),target:catTarget,actual:catSub[k]})));
   const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>${statusDonut([
       {label:'รอ Safety',   val:c.recorded,   color:'var(--blue)'},
@@ -1516,7 +1617,7 @@ function renderDash(){
       {label:'เสร็จ',        val:c.done,       color:'var(--green)'},
       {label:'ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)', val:notPassed, color:'var(--red)'},
     ],total)}</div>`;
-  const tgtHint=`<div class="sub tlg" style="margin-bottom:6px">แต่ละแท่งเทียบ Target (${CAT_TARGET} เรื่อง/คน/ปี) —
+  const tgtHint=`<div class="sub tlg" style="margin-bottom:6px">แต่ละแท่งเทียบ Target (${CAT_TARGET} เรื่อง/คน/ปี) — นับเฉพาะเรื่องที่<b>อนุมัติ+จบงาน</b> ·
     <i class="sw lo"></i> ยังไม่ถึงเป้า · <i class="sw ok"></i> ครบเป้า ·
     <span style="color:var(--red);font-weight:700">+n = เกินเป้า</span> (เส้นประเหลือง = จุดเป้า)</div>`;
   const vsmCard=vsmRows.length?`<div class="card"><h3>🏭 VSM — แยกตามประเภท</h3>${tgtHint}${deptTargetBars(vsmRows)}</div>`:'';
@@ -1530,8 +1631,10 @@ function renderDash(){
 /* ของฉัน — ดูเฉพาะของตัวเอง (แทนการ์ด "ล่าสุด" เดิม) */
 function renderMyDash(y){
   const mine=state.items.filter(i=>i.reporter_id===CURRENT_USER.id&&i.year==y);
-  const cat=newCatMap(); mine.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
-  const done=mine.filter(i=>i.status==='done').length, bonus=bonusFromCats(cat);
+  // ข้อ 4: เป้า/โบนัสนับเฉพาะเรื่องที่ Safety อนุมัติ + จบงาน
+  const counted=mine.filter(isCounted);
+  const cat=newCatMap(); counted.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
+  const done=counted.length, bonus=bonusFromCats(cat);
   const catBar=k=>{ const v=cat[k],ok=v>=CAT_TARGET;
     return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><div class="track"><div class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%;height:100%"></div></div><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
@@ -1539,10 +1642,10 @@ function renderMyDash(y){
     <div class="card"><h3>🙋 สรุปของฉัน — ${esc(CURRENT_USER.name)} (${esc(CURRENT_USER.id)})</h3>
       <div class="grid g3" style="margin:2px 0 12px">
         <div class="stat blue"><div class="n">${mine.length}</div><div class="l">ส่งแล้ว</div></div>
-        <div class="stat green"><div class="n">${done}</div><div class="l">เสร็จ</div></div>
+        <div class="stat green"><div class="n">${done}</div><div class="l">นับผลงาน (อนุมัติ+จบ)</div></div>
         <div class="stat orange"><div class="n">${bonus}%</div><div class="l">โบนัส</div></div>
       </div>
-      <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี</div>
+      <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี — นับเฉพาะเรื่องที่ Safety อนุมัติและจบงานแล้ว</div>
       ${CAT_KEYS.map(catBar).join('')}
       <div class="note" style="margin-top:10px;font-size:11.5px">${BONUS_RULE_TXT}</div>
     </div>
@@ -1557,7 +1660,8 @@ function renderMyDash(y){
 function myVsm(){ return CURRENT_USER ? (empVsm(CURRENT_USER.id)||CURRENT_USER.vsm||'').trim() : ''; }
 function canDrill(dept){
   if(!CURRENT_USER) return false;
-  if(isSafety()) return true;                                            // admin + safety เข้าได้หมด
+  if(isSafety()) return true;                                            // super admin + safety เข้าได้หมด
+  if(isDeptAdmin()) return myVsm()===dept;                               // ข้อ 3: Admin แผนก เฉพาะแผนกตัวเอง
   if(['teamleader','manager'].includes(CURRENT_USER.role)) return myVsm()===dept;
   return false;
 }
@@ -1593,7 +1697,7 @@ function personRow(p){
       <span class="badge ${ok?'b-green':'b-orange'}">${ok?'✓ ครบเป้า':'เหลือ '+p.left}</span>
     </div>
     <div class="prow-bar"><span class="${ok?'ok':'lo'}" style="width:${pct}%"></span></div>
-    <div class="prow-meta"><span>ส่ง <b>${p.submitted}</b></span><span>ปิด <b>${p.done}</b></span>${cats}</div>
+    <div class="prow-meta"><span>ส่ง <b>${p.submitted}</b></span><span>ผ่านเกณฑ์ <b>${p.done}</b></span>${cats}</div>
   </div>`;
 }
 function openTeam(dept){
@@ -1609,7 +1713,7 @@ function openTeam(dept){
         <option value="name">เรียง: ชื่อ ก → ฮ</option>
       </select>
     </div>
-    <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · “เหลือ” = ยังขาดอีกกี่เรื่องจึงครบทุกประเภท</div>
+    <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · “เหลือ” = ยังขาดอีกกี่เรื่องจึงครบทุกประเภท · นับเฉพาะเรื่องที่<b>อนุมัติ+จบงาน</b></div>
     <div id="teamSum"></div>
     <div id="teamList"></div>`);
   renderTeamList();
@@ -1647,8 +1751,9 @@ function renderSettings(){
   // ปุ่มดึงข้อมูลเป็น Excel/CSV — Safety & Admin (req #2: ย้ายจากเมนูรายงานมาไว้ในตั้งค่า)
   const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
   const yearOpts=years.map(yy=>`<option value="${yy}">ปี ${yy}</option>`).join('');
-  const exportCard=isSafety()?`<div class="card"><h3>📤 ดึงข้อมูลเป็น Excel</h3>
-      <div class="sub" style="margin-bottom:8px">ส่งออกข้อมูล PSIF เป็นไฟล์ .csv (เปิดใน Excel ได้ทันที)</div>
+  // ข้อ 5/6: การ export หลักย้ายไปปุ่ม "Report" (.xlsx) หน้าติดตามแล้ว — การ์ดนี้เหลือเฉพาะ Super Admin
+  const exportCard=isSuperAdmin()?`<div class="card"><h3>📤 ดึงข้อมูลเป็น Excel</h3>
+      <div class="sub" style="margin-bottom:8px">ส่งออกข้อมูล PSIF เป็นไฟล์ .csv (เปิดใน Excel ได้ทันที) — ปุ่ม Report หน้า “ติดตาม” ให้ไฟล์ .xlsx รายละเอียดครบกว่า</div>
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <select class="inp btn-sm" id="expYear" style="width:auto;padding:8px 10px">${yearOpts}</select>
         <button class="btn btn-blue btn-sm" onclick="exportAllCSV(+$('expYear').value)">⬇️ ข้อมูลทั้งหมด</button>
@@ -1720,8 +1825,8 @@ function editEmp(id){
     <label class="fl">ชื่อ-สกุล</label><input class="inp" id="eName" value="${esc(e.name)}">
     <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="eVsm" value="${esc(e.vsm||'')}">
     <label class="fl">สิทธิ์</label><select class="inp" id="eRole">
-      ${['user','teamleader','manager','safety','admin'].map(r=>`<option value="${r}" ${e.role===r?'selected':''}>${roleLabel(r)}${r==='user'?'':' ('+r+')'}</option>`).join('')}</select>
-    <div class="sub" style="margin-top:4px">Team Leader เห็นรายคนใน VSM ตัวเอง · Manager เห็นรายคนในแผนกตัวเอง (กดที่แดชบอร์ด)</div>
+      ${['user','teamleader','manager','dept_admin','safety','admin'].map(r=>`<option value="${r}" ${e.role===r?'selected':''}>${roleLabel(r)}${r==='user'?'':' ('+r+')'}</option>`).join('')}</select>
+    <div class="sub" style="margin-top:4px">Team Leader/Manager เห็นรายคนในกลุ่มตัวเอง · <b>Admin แผนก</b> ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ตามช่องหน่วยงาน/VSM ด้านบน) เข้าตั้งค่าไม่ได้ · <b>Super Admin</b> ทุกแผนก + ตั้งค่า</div>
     <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>`);
 }
 async function saveEmp(){
@@ -1914,6 +2019,90 @@ async function testApi(){
   catch(e){ $('apiStatus').textContent='❌ '+e.message; }
 }
 
+/* ====================================================================
+ *  XLSX export (ข้อ 5) — สร้างไฟล์ .xlsx แท้ ๆ ด้วย JS ล้วน ไม่พึ่งไลบรารี/CDN
+ *  (.xlsx = zip ของ XML — ใช้ zip แบบ stored ไม่บีบอัด + inline strings)
+ * ==================================================================== */
+const _crcTable=(()=>{const t=new Uint32Array(256);
+  for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c;}
+  return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=_crcTable[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function xmlEsc(s){return String(s==null?'':s)
+  .replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');}   // ตัด control chars ที่ XML ห้าม
+function colRef(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26;}return s;}
+function sheetXml(rows){
+  const rx=rows.map((row,ri)=>'<row r="'+(ri+1)+'">'+row.map((v,ci)=>{
+    const ref=colRef(ci)+(ri+1);
+    if(typeof v==='number'&&isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`;
+    const s=xmlEsc(v); if(s==='') return '';
+    return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${s}</t></is></c>`;
+  }).join('')+'</row>').join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rx}</sheetData></worksheet>`;
+}
+function zipStore(files){ // files:[{name,data:Uint8Array}] → Blob(.zip) — method 0 (stored)
+  const enc=new TextEncoder(); const parts=[]; const central=[]; let offset=0;
+  for(const f of files){
+    const name=enc.encode(f.name), data=f.data, crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true);
+    lh.setUint16(8,0,true); lh.setUint16(10,0,true); lh.setUint16(12,0x21,true);   // 0x21 = 1980-01-01
+    lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true); lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer),name,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true);
+    ch.setUint16(10,0,true); ch.setUint16(12,0,true); ch.setUint16(14,0x21,true);
+    ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true); ch.setUint32(42,offset,true);                // ที่เหลือ = 0
+    central.push(new Uint8Array(ch.buffer),name);
+    offset+=30+name.length+data.length;
+  }
+  const cdSize=central.reduce((s,a)=>s+a.length,0);
+  const eo=new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true); eo.setUint16(8,files.length,true); eo.setUint16(10,files.length,true);
+  eo.setUint32(12,cdSize,true); eo.setUint32(16,offset,true);
+  return new Blob([...parts,...central,new Uint8Array(eo.buffer)],
+    {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function xlsxDownload(filename,rows){
+  const enc=new TextEncoder();
+  const X='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files=[
+    {name:'[Content_Types].xml',xml:X+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'},
+    {name:'_rels/.rels',xml:X+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',xml:X+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="PSIF" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',xml:X+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'},
+    {name:'xl/worksheets/sheet1.xml',xml:sheetXml(rows)},
+  ].map(f=>({name:f.name,data:enc.encode(f.xml)}));
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(zipStore(files)); a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+/* ข้อ 5: ปุ่ม Report หน้าติดตาม — export ตาม filter ที่เลือกอยู่บนหน้าจอ ครบทุกฟิลด์ของ PSIF
+   สิทธิ์: Admin แผนก (เห็นเฉพาะแผนกตัวเอง — ถูก scope ทั้ง backend และ listBaseItems แล้ว) / Safety / Super Admin */
+function exportReportXlsx(){
+  if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Safety / Super Admin','orange'); return; }
+  const arr=listFilteredItems();
+  if(!arr.length){ toast('ไม่มีรายการตามตัวกรองปัจจุบัน','orange'); return; }
+  const stLabel=it=>{ const k=safetyKind(it); return REJECT_KINDS.includes(k)?SAFETY_KIND[k].label:(STATUS[it.status]||STATUS.recorded).label; };
+  const sfLabel=it=>{ const k=safetyKind(it); return k==='pending'?'รอตรวจ':SAFETY_KIND[k].label; };
+  const head=['ID','No.PSIF','วันที่บันทึก','ปี','รหัสผู้รายงาน','ชื่อผู้รายงาน','หน่วยงาน/แผนก','พื้นที่','เครื่องจักร/จุด',
+    'ประเภท','หัวข้อ','รายละเอียด','ข้อเสนอแนะ','สถานะ','สถานะ (ระบบ)','ผล Safety','ผล Safety (ระบบ)','หมายเหตุ Safety',
+    'ผู้ตรวจ Safety','วันที่ตรวจ','สรุปการแก้ไข','ผู้ปิดงาน','วันที่ปิดงาน','นับผลงาน (อนุมัติ+จบ)','รูปก่อน','รูปหลัง','แก้ไขล่าสุด'];
+  const rows=[head,...arr.map(i=>{
+    const ph=i.photos||[];
+    return [i.id,i.no||'',i.created_at||'',i.year||'',i.reporter_id||'',i.reporter_name||'',i.vsm||'',i.area_id||'',i.machine||'',
+      catLabel(i.category),i.title||'',i.detail||'',i.suggestion||'',stLabel(i),i.status||'',sfLabel(i),i.safety_result||'',i.safety_note||'',
+      i.safety_by||'',i.safety_at||'',i.done_detail||'',i.done_by||'',i.done_at||'',isCounted(i)?'ใช่':'ไม่',
+      ph.filter(p=>p.kind==='before').length,ph.filter(p=>p.kind==='after').length,i.updated_at||''];
+  })];
+  const scopeTxt=listScope==='mine'?'ของฉัน':(listScope==='all'?(isDeptAdmin()?(myVsm()||'แผนก'):'ทั้งหมด'):listScope);
+  xlsxDownload(`PSIF_Report_${scopeTxt}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\/:*?"<>|]/g,'-'),rows);
+  toast(`📊 ส่งออก ${arr.length.toLocaleString()} รายการเป็น Excel แล้ว`,'green');
+}
+
 /* ---------------- CSV export (req #14) ---------------- */
 function dl(name,content){ const b=new Blob(['﻿'+content],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a');
   a.href=URL.createObjectURL(b); a.download=name; a.click(); }
@@ -1964,6 +2153,7 @@ const DEFAULT_EMP=[
 ];
 
 /* ---------------- start ---------------- */
+document.querySelectorAll('.app-ver').forEach(el=>el.textContent='v'+APP_VERSION);
 applyDashWidth();
 bootApp();
 </script>
