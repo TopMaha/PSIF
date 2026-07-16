@@ -577,6 +577,17 @@ label.fl{font-weight:600;letter-spacing:.2px}
     </div>
   </div>
 
+  <!-- ===== MANAGER (เมนูล่าง — เฉพาะ role Safety) ===== -->
+  <div class="pane" id="pane-mgr">
+    <div class="wrap">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="font-size:18px">👨‍💼 Manager</h2>
+        <select class="inp btn-sm" id="mgrYear" style="width:auto;padding:6px 8px" onchange="renderMgr()"></select>
+      </div>
+      <div id="mgrBody"></div>
+    </div>
+  </div>
+
   <!-- ===== bottom nav (built by renderNav() — items depend on role) ===== -->
   <nav class="bnav" id="bnav"></nav>
 </div>
@@ -962,9 +973,9 @@ function renderNav(){
   if(isSuperAdmin())                                   // Super Admin: ครบทุกเมนูรวมตั้งค่า
     html = navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
            navBtn('safety','🛡️','Safety')+navBtn('settings','⚙️','ตั้งค่า');
-  else if(isSafety())                                  // Safety: ไม่มีเมนูตั้งค่า (ข้อ 6)
+  else if(isSafety())                                  // Safety: ไม่มีเมนูตั้งค่า (ข้อ 6) · เมนู Manager ต่อจาก Safety (เฉพาะ role safety)
     html = navBtn('home','📊','แดชบอร์ด')+navBtn('list','🗂️','ติดตาม')+navBtn('create','✏️','บันทึก','fab')+
-           navBtn('safety','🛡️','Safety');
+           navBtn('safety','🛡️','Safety')+navBtn('mgr','👨‍💼','Manager');
   else                                                 // user / TL / manager / Admin แผนก (สิทธิ์เพิ่มอยู่ในหน้าติดตาม)
     html = navBtn('home','📊','แดชบอร์ด')+navBtn('create','✏️','บันทึก','fab')+navBtn('list','🗂️','ติดตาม');
   $('bnav').innerHTML = html;
@@ -990,6 +1001,7 @@ function fillStaticUI(){
   const years=[...new Set(state.items.map(i=>i.year).concat([yr()]))].sort((a,b)=>b-a);
   const opts=years.map(y=>`<option value="${y}">ปี ${y}</option>`).join('');
   $('dashYear').innerHTML=opts;
+  const mgrY=$('mgrYear'); if(mgrY){ const cur=mgrY.value; mgrY.innerHTML=opts; if(cur) mgrY.value=cur; }
   const expY=$('expYear'); if(expY){ const cur=expY.value; expY.innerHTML=opts; if(cur) expY.value=cur; }
   // api field
   $('apiUrl').value=API;
@@ -1001,6 +1013,7 @@ function setPane(p){
   // ข้อ 3/6: ตั้งค่า = Super Admin เท่านั้น (Safety/Admin แผนก เข้าไม่ได้) · Safety pane = Safety & Super Admin
   if(p==='settings' && !isSuperAdmin()){ p='home'; }
   if(p==='safety' && !isSafety()){ p='home'; }
+  if(p==='mgr' && !(CURRENT_USER&&CURRENT_USER.role==='safety')){ p='home'; }   // เมนู Manager = role Safety เท่านั้น
   document.querySelectorAll('.pane').forEach(el=>el.classList.remove('active'));
   $('pane-'+p).classList.add('active');
   document.querySelectorAll('.bnav button').forEach(b=>b.classList.toggle('active',b.dataset.pane===p));
@@ -1008,6 +1021,7 @@ function setPane(p){
   if(p==='home') renderDash();
   if(p==='list') renderList();
   if(p==='safety') renderSafety();
+  if(p==='mgr') renderMgr();
   if(p==='create') refreshCreate();
   if(p==='settings') renderSettings();
 }
@@ -1552,22 +1566,17 @@ function deptTargetData(items){
 }
 function vsmNum(s){ const m=String(s).match(/\d+/); return m?+m[0]:9999; }
 
-let dashView='plant';   // 'plant' | 'mine' | 'mgr' (มุมมอง Manager — เฉพาะ Safety/Super Admin)
+let dashMine=false;
 function renderDash(){
   applyDashWidth();
   const y=+($('dashYear').value||yr());
   // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
   const teamChip=((['teamleader','manager'].includes(CURRENT_USER.role)||isDeptAdmin())&&myVsm())
     ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
-  // มุมมอง Manager: รายชื่อผู้จัดการทุกคน + ผลงานของแต่ละคน — เฉพาะ role Safety เท่านั้น (req)
-  const isSafetyRole=CURRENT_USER&&CURRENT_USER.role==='safety';
-  const mgrChip=isSafetyRole
-    ? `<button class="chip ${dashView==='mgr'?'on':''}" onclick="dashView='mgr';renderDash()">👨‍💼 Manager</button>` : '';
   $('dashScope').innerHTML=`
-    <button class="chip ${dashView==='plant'?'on':''}" onclick="dashView='plant';renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
-    <button class="chip ${dashView==='mine'?'on':''}" onclick="dashView='mine';renderDash()">🙋 ของฉัน</button>${mgrChip}${teamChip}`;
-  if(dashView==='mine'){ renderMyDash(y); return; }
-  if(dashView==='mgr'){ if(isSafetyRole){ renderMgrDash(y); return; } dashView='plant'; }
+    <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
+    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}`;
+  if(dashMine){ renderMyDash(y); return; }
 
   // ข้อ 3: Admin แผนก เห็นเฉพาะแผนกตัวเอง (backend scope แล้ว — กรองซ้ำกันเหนียว)
   let items=state.items.filter(i=>i.year==y);
@@ -1657,10 +1666,12 @@ function renderMyDash(y){
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
 }
 
-/* มุมมอง Manager (เฉพาะ Safety/Super Admin) — รายชื่อผู้จัดการทุกคน ว่าแต่ละคนได้กี่เรื่องแล้ว
-   เรียงจากได้มาก → น้อย (เปลี่ยนการเรียงได้) · นับเฉพาะเรื่องที่อนุมัติ+จบงาน เหมือน KPI หลัก */
+/* หน้า Manager (เมนูล่าง ต่อจาก Safety — เฉพาะ role Safety) — รายชื่อผู้จัดการทุกคน
+   ว่าแต่ละคนได้กี่เรื่องแล้ว เรียงจากได้มาก → น้อย (เปลี่ยนการเรียงได้)
+   นับเฉพาะเรื่องที่อนุมัติ+จบงาน เหมือน KPI หลัก */
 let mgrSort='done';
-function renderMgrDash(y){
+function renderMgr(){
+  const y=+($('mgrYear').value||yr());
   const mgrIds=new Set(state.employees.filter(e=>e.active!==0&&e.role==='manager').map(e=>e.id));
   const {people}=computePerson(y);
   const mgrs=people.filter(p=>mgrIds.has(p.id));
@@ -1673,7 +1684,7 @@ function renderMgrDash(y){
     name:(a,b)=>(a.name||'').localeCompare(b.name||'','th'),
   }[mgrSort]; if(by) mgrs.sort(by);
   const okN=mgrs.filter(p=>p.left===0).length;
-  $('dashBody').innerHTML=`
+  $('mgrBody').innerHTML=`
     <div class="card"><h3>👨‍💼 Manager — ผลงานรายคน (ปี ${y})</h3>
       <div class="team-sum" style="margin-bottom:8px">
         <span class="badge b-blue">Manager ${mgrs.length} คน</span>
@@ -1681,7 +1692,7 @@ function renderMgrDash(y){
         <span class="badge b-orange">ยังไม่ครบ ${mgrs.length-okN} คน</span>
       </div>
       <div class="row" style="gap:8px;margin-bottom:8px;align-items:center">
-        <select class="inp btn-sm" style="width:auto;padding:8px 10px" onchange="mgrSort=this.value;renderDash()">
+        <select class="inp btn-sm" style="width:auto;padding:8px 10px" onchange="mgrSort=this.value;renderMgr()">
           <option value="done" ${mgrSort==='done'?'selected':''}>เรียง: ได้มาก → น้อย</option>
           <option value="left" ${mgrSort==='left'?'selected':''}>เรียง: เหลือมาก → น้อย</option>
           <option value="sub" ${mgrSort==='sub'?'selected':''}>เรียง: ส่งมาก → น้อย</option>
@@ -2165,7 +2176,7 @@ function exportPersonCSV(y){
 /* ---------------- shared refresh ---------------- */
 function refreshAll(){ const active=document.querySelector('.pane.active'); fillStaticUI();
   renderDash(); if(active){const id=active.id.replace('pane-','');
-    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='settings')renderSettings();} }
+    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='mgr')renderMgr(); if(id==='settings')renderSettings();} }
 
 /* ---------------- modal ---------------- */
 function openModal(t,h){ $('modalTt').textContent=t; $('modalBd').innerHTML=h; $('modalBg').classList.add('open'); }
