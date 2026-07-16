@@ -1552,17 +1552,21 @@ function deptTargetData(items){
 }
 function vsmNum(s){ const m=String(s).match(/\d+/); return m?+m[0]:9999; }
 
-let dashMine=false;
+let dashView='plant';   // 'plant' | 'mine' | 'mgr' (มุมมอง Manager — เฉพาะ Safety/Super Admin)
 function renderDash(){
   applyDashWidth();
   const y=+($('dashYear').value||yr());
   // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
   const teamChip=((['teamleader','manager'].includes(CURRENT_USER.role)||isDeptAdmin())&&myVsm())
     ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
+  // มุมมอง Manager: รายชื่อผู้จัดการทุกคน + ผลงานของแต่ละคน — ให้ Safety ตามงานได้
+  const mgrChip=isSafety()
+    ? `<button class="chip ${dashView==='mgr'?'on':''}" onclick="dashView='mgr';renderDash()">👨‍💼 Manager</button>` : '';
   $('dashScope').innerHTML=`
-    <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
-    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}`;
-  if(dashMine){ renderMyDash(y); return; }
+    <button class="chip ${dashView==='plant'?'on':''}" onclick="dashView='plant';renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
+    <button class="chip ${dashView==='mine'?'on':''}" onclick="dashView='mine';renderDash()">🙋 ของฉัน</button>${mgrChip}${teamChip}`;
+  if(dashView==='mine'){ renderMyDash(y); return; }
+  if(dashView==='mgr'){ if(isSafety()){ renderMgrDash(y); return; } dashView='plant'; }
 
   // ข้อ 3: Admin แผนก เห็นเฉพาะแผนกตัวเอง (backend scope แล้ว — กรองซ้ำกันเหนียว)
   let items=state.items.filter(i=>i.year==y);
@@ -1652,6 +1656,42 @@ function renderMyDash(y){
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
 }
 
+/* มุมมอง Manager (เฉพาะ Safety/Super Admin) — รายชื่อผู้จัดการทุกคน ว่าแต่ละคนได้กี่เรื่องแล้ว
+   เรียงจากได้มาก → น้อย (เปลี่ยนการเรียงได้) · นับเฉพาะเรื่องที่อนุมัติ+จบงาน เหมือน KPI หลัก */
+let mgrSort='done';
+function renderMgrDash(y){
+  const mgrIds=new Set(state.employees.filter(e=>e.active!==0&&e.role==='manager').map(e=>e.id));
+  const {people}=computePerson(y);
+  const mgrs=people.filter(p=>mgrIds.has(p.id));
+  mgrs.forEach(p=>{ p.showVsm=true;
+    p.left=CAT_KEYS.reduce((s,k)=>s+Math.max(0,CAT_TARGET-(p.cats[k]||0)),0); });
+  const by={
+    done:(a,b)=>b.done-a.done||b.submitted-a.submitted||(a.name||'').localeCompare(b.name||'','th'),
+    sub:(a,b)=>b.submitted-a.submitted||b.done-a.done,
+    left:(a,b)=>b.left-a.left||a.done-b.done,
+    name:(a,b)=>(a.name||'').localeCompare(b.name||'','th'),
+  }[mgrSort]; if(by) mgrs.sort(by);
+  const okN=mgrs.filter(p=>p.left===0).length;
+  $('dashBody').innerHTML=`
+    <div class="card"><h3>👨‍💼 Manager — ผลงานรายคน (ปี ${y})</h3>
+      <div class="team-sum" style="margin-bottom:8px">
+        <span class="badge b-blue">Manager ${mgrs.length} คน</span>
+        <span class="badge b-green">✓ ครบเป้า ${okN} คน</span>
+        <span class="badge b-orange">ยังไม่ครบ ${mgrs.length-okN} คน</span>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:8px;align-items:center">
+        <select class="inp btn-sm" style="width:auto;padding:8px 10px" onchange="mgrSort=this.value;renderDash()">
+          <option value="done" ${mgrSort==='done'?'selected':''}>เรียง: ได้มาก → น้อย</option>
+          <option value="left" ${mgrSort==='left'?'selected':''}>เรียง: เหลือมาก → น้อย</option>
+          <option value="sub" ${mgrSort==='sub'?'selected':''}>เรียง: ส่งมาก → น้อย</option>
+          <option value="name" ${mgrSort==='name'?'selected':''}>เรียง: ชื่อ ก → ฮ</option>
+        </select>
+      </div>
+      <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · นับเฉพาะเรื่องที่<b>อนุมัติ+จบงาน</b></div>
+      ${mgrs.length?mgrs.map(p=>personRow(p)).join(''):'<div class="empty"><span class="ic">👨‍💼</span>ยังไม่มีพนักงานที่ตั้งสิทธิ์เป็น Manager — ตั้งได้ที่เมนูตั้งค่า → พนักงาน</div>'}
+    </div>`;
+}
+
 /* ====================================================================
  *  TEAM DRILL-DOWN — กด VSM/แผนก บนแดชบอร์ดเพื่อดูรายคน (req: TL/Manager)
  *  ใครส่งกี่เรื่อง · ปิดกี่เรื่อง · เหลือกี่เรื่อง — 20 คน/หน้า ค้นหา+เรียงได้
@@ -1693,7 +1733,7 @@ function personRow(p){
     return `<span class="pcat ${v>=CAT_TARGET?'ok':''}">${CAT_SHORT[k]} ${v}/${CAT_TARGET}</span>`; }).join('');
   return `<div class="prow">
     <div class="prow-h">
-      <div class="prow-nm"><b>${esc(p.name)}</b> <span class="sub">${esc(p.id)}</span></div>
+      <div class="prow-nm"><b>${esc(p.name)}</b> <span class="sub">${esc(p.id)}${p.showVsm&&p.vsm?' · '+esc(p.vsm):''}</span></div>
       <span class="badge ${ok?'b-green':'b-orange'}">${ok?'✓ ครบเป้า':'เหลือ '+p.left}</span>
     </div>
     <div class="prow-bar"><span class="${ok?'ok':'lo'}" style="width:${pct}%"></span></div>
@@ -2088,12 +2128,14 @@ function exportReportXlsx(){
   if(!arr.length){ toast('ไม่มีรายการตามตัวกรองปัจจุบัน','orange'); return; }
   const stLabel=it=>{ const k=safetyKind(it); return REJECT_KINDS.includes(k)?SAFETY_KIND[k].label:(STATUS[it.status]||STATUS.recorded).label; };
   const sfLabel=it=>{ const k=safetyKind(it); return k==='pending'?'รอตรวจ':SAFETY_KIND[k].label; };
-  const head=['ID','No.PSIF','วันที่บันทึก','ปี','รหัสผู้รายงาน','ชื่อผู้รายงาน','หน่วยงาน/แผนก','พื้นที่','เครื่องจักร/จุด',
+  const head=['ID','No.PSIF','วันที่บันทึก','ปี','รหัสผู้รายงาน','ชื่อผู้รายงาน','หน่วยงาน/แผนก','พื้นที่/สถานที่','เครื่องจักร/จุด',
     'ประเภท','หัวข้อ','รายละเอียด','ข้อเสนอแนะ','สถานะ','สถานะ (ระบบ)','ผล Safety','ผล Safety (ระบบ)','หมายเหตุ Safety',
     'ผู้ตรวจ Safety','วันที่ตรวจ','สรุปการแก้ไข','ผู้ปิดงาน','วันที่ปิดงาน','นับผลงาน (อนุมัติ+จบ)','รูปก่อน','รูปหลัง','แก้ไขล่าสุด'];
   const rows=[head,...arr.map(i=>{
     const ph=i.photos||[];
-    return [i.id,i.no||'',i.created_at||'',i.year||'',i.reporter_id||'',i.reporter_name||'',i.vsm||'',i.area_id||'',i.machine||'',
+    // ข้อมูลนำเข้าจาก Excel เก่ามี "สถานที่/เครื่องจักร" รวมช่องเดียว (เก็บใน machine) — ถ้าไม่มีพื้นที่ให้ใช้ค่านั้นแทน เพื่อไม่ให้คอลัมน์พื้นที่ว่าง
+    const areaTxt=i.area_id||i.machine||'';
+    return [i.id,i.no||'',i.created_at||'',i.year||'',i.reporter_id||'',i.reporter_name||'',i.vsm||'',areaTxt,i.machine||'',
       catLabel(i.category),i.title||'',i.detail||'',i.suggestion||'',stLabel(i),i.status||'',sfLabel(i),i.safety_result||'',i.safety_note||'',
       i.safety_by||'',i.safety_at||'',i.done_detail||'',i.done_by||'',i.done_at||'',isCounted(i)?'ใช่':'ไม่',
       ph.filter(p=>p.kind==='before').length,ph.filter(p=>p.kind==='after').length,i.updated_at||''];
@@ -2108,7 +2150,7 @@ function dl(name,content){ const b=new Blob(['﻿'+content],{type:'text/csv;char
   a.href=URL.createObjectURL(b); a.download=name; a.click(); }
 function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
 function exportAllCSV(y){
-  const head=['id','no','status','safety_result','reporter_id','reporter_name','vsm','category','machine','title','created_at','done_at'];
+  const head=['id','no','status','safety_result','reporter_id','reporter_name','vsm','category','area_id','machine','title','created_at','done_at'];
   const rows=state.items.filter(i=>i.year==y).map(i=>head.map(h=>csvCell(i[h])).join(','));
   dl(`PSIF_${y}.csv`,[head.join(','),...rows].join('\n')); toast('ส่งออกแล้ว','green');
 }

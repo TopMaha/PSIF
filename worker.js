@@ -122,7 +122,7 @@ async function importRoute(env, request) {
          status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      r.no || '', r.reporter_id || '', r.reporter_name || '', r.vsm || '', '', r.machine || '', r.category || '',
+      r.no || '', r.reporter_id || '', r.reporter_name || '', r.vsm || '', r.area_id || '', r.machine || '', r.category || '',
       title, r.detail || '', r.suggestion || '',
       r.status || 'recorded', r.safety_result || 'pending', r.safety_note || '', r.safety_at || '',
       r.done_detail || '', r.done_by || '', r.done_at || '',
