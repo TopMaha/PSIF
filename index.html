@@ -334,6 +334,29 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .mini-tgt .fill{display:block;height:100%;border-radius:6px;transition:width .5s;background:linear-gradient(90deg,var(--blue),var(--steel))}
 .mini-tgt .fill.ok{background:linear-gradient(90deg,#34d399,var(--green))}
 .mini-tgt .num{width:52px;text-align:right;font-weight:700;font-size:13px}
+/* การ์ดอธิบายโบนัส 2 ส่วน (95% KPI อื่น + ส่วน PSIF) */
+.bonus-wrap{background:linear-gradient(180deg,#FFFBEB,#fff);border:1px solid var(--orange-bd);border-radius:12px;padding:12px;margin-top:12px}
+.bonus-eq{display:flex;align-items:stretch;justify-content:center;gap:6px;flex-wrap:wrap;margin:10px 0 6px}
+.bonus-eq .part{display:flex;flex-direction:column;justify-content:center;text-align:center;padding:7px 10px;border-radius:10px;line-height:1.2;min-width:86px}
+.bonus-eq .part .v{font-size:20px;font-weight:800}
+.bonus-eq .part .t{font-size:9.5px;font-weight:600;color:var(--muted)}
+.bonus-eq .op{align-self:center;font-size:18px;font-weight:800;color:var(--muted)}
+.bonus-eq .kpi{background:var(--blue-light);color:var(--blue)}
+.bonus-eq .psif{background:var(--orange-bg);color:var(--orange)}
+.bonus-eq .sum{background:var(--green-bg);color:var(--green)}
+.bonus-bar{position:relative;height:20px;background:#F1F5F9;border-radius:8px;display:flex;margin:14px 0 6px}
+.bonus-bar .seg{height:100%}
+.bonus-bar .seg.kpi{background:linear-gradient(90deg,var(--blue),var(--steel));border-radius:8px 0 0 8px}
+.bonus-bar .seg.psif{background:linear-gradient(90deg,#fbbf24,var(--amber))}
+.bonus-bar .seg.psif.full{background:linear-gradient(90deg,#34d399,var(--green))}
+.bonus-100{position:absolute;top:-4px;bottom:-4px;border-left:2px dashed var(--red)}
+.bonus-100 i{position:absolute;left:-30px;top:-13px;font-style:normal;font-size:9.5px;font-weight:700;color:var(--red);white-space:nowrap}
+.bonus-chk{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:5px 0}
+.bonus-chk .pct{margin-left:auto;font-weight:700;font-size:12px}
+.bonus-tbl{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}
+.bonus-tbl th{background:var(--blue-light);color:var(--blue-dark);text-align:left;padding:5px 8px}
+.bonus-tbl td{border-top:1px solid var(--border);padding:5px 8px}
+.bonus-tbl tr.on td{background:var(--green-bg);font-weight:700;color:var(--green)}
 
 /* before/after paired thumbnails on the tracker card (req #5) */
 .ba-thumbs{display:flex;gap:8px;margin-top:10px}
@@ -662,7 +685,57 @@ function bonusFromCats(cats){
   if(beh>=2) b+=2.5;
   return b;
 }
-const BONUS_RULE_TXT='เงื่อนไขโบนัส: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%<br>⚖️ นับเฉพาะเรื่องที่ <b>Safety อนุมัติ</b> และ <b>ดำเนินการจนจบ</b> เท่านั้น';
+/* 2026-07-17: โครงโบนัสรวมทั้งบริษัท — KPI งานอื่น 95% + ส่วน PSIF 5% = 100% มาตรฐาน
+   ส่วน PSIF ขยับเป็น 10% ได้เมื่อทำครบทั้ง 3 ประเภท → รวมสูงสุด 105% (เกินเป้าปกติ)
+   ตัวเลข % ในแอปนี้ = "ส่วนของ PSIF" เท่านั้น ไม่ใช่โบนัสทั้งก้อน — พนักงานเคยสับสนจุดนี้ */
+const KPI_OTHER_PCT=95, PSIF_BASE_PCT=5, PSIF_MAX_PCT=10;
+const BONUS_RULE_TXT='💡 โบนัสรวม = <b>KPI งานอื่น 95%</b> + <b>ส่วน PSIF</b> (พื้นฐาน 5% = ครบ 100% · ทำครบ 3 ประเภทได้ <b>10%</b> = รวม <b>105%</b>)<br>'
+ +'เงื่อนไขส่วน PSIF: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%<br>'
+ +'⚖️ นับเฉพาะเรื่องที่ <b>Safety อนุมัติ</b> และ <b>ดำเนินการจนจบ</b> เท่านั้น';
+
+/* การ์ดอธิบายโบนัสรายคน — ตอบคำถาม "ทำครบแล้วทำไมขึ้น 10% ไม่ใช่ 100%?" ด้วยภาพ + ตาราง 4 ขั้น */
+function bonusExplainHtml(cats){
+  const b=bonusFromCats(cats);
+  const con=cats['PSIF']||0, nm=cats['Near miss']||0, beh=cats['Behavior']||0;
+  const total=KPI_OTHER_PCT+b;
+  let msg;
+  if(b>=PSIF_MAX_PCT) msg='🎉 <b>สุดยอด!</b> คุณทำ PSIF ครบทั้ง 3 ประเภท — ส่วน PSIF ได้เต็ม <b>10%</b> โบนัสรวมของคุณจึงเป็น <b>105%</b> ซึ่ง<b>เกิน</b>เป้าปกติ 100% (เลข "10%" คือส่วนของ PSIF เท่านั้น ไม่ใช่โบนัสทั้งก้อน)';
+  else if(b<=0) msg='ส่วน PSIF ของคุณยังเป็น <b>0%</b> — ต้องมี <b>PSIF (Con)</b> ที่อนุมัติ+จบงานครบ <b>2 เรื่อง</b>ก่อน จึงเริ่มได้ 5% พื้นฐาน (ตอนนี้โบนัสรวมได้แค่ 95%)';
+  else msg=`ตอนนี้คุณได้ส่วน PSIF <b>${b}%</b> (รวม ${total}%) — ทำให้ครบทุกประเภท (≥2 เรื่อง/ประเภท) เพื่อขยับเป็น <b>10%</b> → โบนัสรวม <b>105%</b>`;
+  const chk=(ok,label,val,pct)=>`<div class="bonus-chk"><span>${ok?'✅':'⭕'}</span><span>${label} <b>${val}/${CAT_TARGET}</b> เรื่อง</span><span class="pct" style="color:${ok?'var(--green)':'var(--muted2)'}">${pct}</span></div>`;
+  const lvl=(on,psif,tot,cap)=>`<tr class="${on?'on':''}"><td>${cap}</td><td>${psif}</td><td><b>${tot}</b>${on?' ← คุณอยู่ตรงนี้':''}</td></tr>`;
+  return `<div class="bonus-wrap">
+    <div style="font-weight:800;font-size:13.5px">🧮 โบนัสของคุณมาจาก 2 ส่วน</div>
+    <div class="bonus-eq">
+      <span class="part kpi"><span class="v">95%</span><span class="t">KPI งานอื่นๆ<br>(ประเมินแยกต่างหาก)</span></span>
+      <span class="op">+</span>
+      <span class="part psif"><span class="v">${b}%</span><span class="t">PSIF จากแอปนี้<br>(พื้นฐาน 5% · เต็ม 10%)</span></span>
+      <span class="op">=</span>
+      <span class="part sum"><span class="v">${total}%</span><span class="t">โบนัสรวมของคุณ*<br>(เต็มมาตรฐาน 100%)</span></span>
+    </div>
+    <div class="bonus-bar">
+      <span class="seg kpi" style="width:${(KPI_OTHER_PCT/105*100).toFixed(1)}%"></span>
+      ${b>0?`<span class="seg psif ${b>=PSIF_MAX_PCT?'full':''}" style="width:${(b/105*100).toFixed(1)}%"></span>`:''}
+      <span class="bonus-100" style="left:${(100/105*100).toFixed(1)}%"><i>เป้า 100%</i></span>
+    </div>
+    <div class="sub" style="margin:8px 0">${msg}</div>
+    ${chk(con>=CAT_TARGET,'PSIF (Con)',con, con>=CAT_TARGET?'ได้ 5% พื้นฐาน':'ยังไม่ได้ 5% พื้นฐาน')}
+    ${chk(nm>=CAT_TARGET,'Near miss',nm, nm>=CAT_TARGET?(con>=CAT_TARGET?'+2.5%':'จะได้ +2.5% เมื่อผ่าน (Con)'):'ยัง +2.5% ไม่ได้')}
+    ${chk(beh>=CAT_TARGET,'PSIF (Behavior)',beh, beh>=CAT_TARGET?(con>=CAT_TARGET?'+2.5%':'จะได้ +2.5% เมื่อผ่าน (Con)'):'ยัง +2.5% ไม่ได้')}
+    <table class="bonus-tbl">
+      <tr><th>ผลงาน PSIF ของคุณ</th><th>ส่วน PSIF</th><th>โบนัสรวม*</th></tr>
+      ${lvl(b===0,'0%','95%','ยังไม่ผ่าน PSIF (Con)')}
+      ${lvl(b===5,'5%','100%','PSIF (Con) ครบ 2')}
+      ${lvl(b===7.5,'7.5%','102.5%','Con + อีก 1 ประเภทครบ')}
+      ${lvl(b===10,'10%','105% 🎉','ครบทั้ง 3 ประเภท')}
+    </table>
+    <div class="note" style="margin-top:8px;font-size:11.5px">
+      ❓ <b>"ทำครบแล้ว ทำไมขึ้น 10% ไม่ใช่ 100%?"</b><br>
+      → แอปนี้แสดงเฉพาะ <b>"ส่วนของ PSIF"</b> ซึ่งเต็มที่คือ 10% — อีก 95% มาจาก KPI งานอื่นของคุณ เมื่อรวมกัน คนที่ทำ PSIF ครบ 3 ประเภทจะได้ <b>105%</b> (มากกว่าเป้าปกติ 100%)<br>
+      <span class="sub">*โบนัสรวมคิดจากกรณีที่ KPI งานอื่นได้เต็ม 95%</span>
+    </div>
+  </div>`;
+}
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -1293,6 +1366,8 @@ function openItem(id){
   // ข้อ 3: Admin แผนก (dept_admin) ออกเลข/ปิดงาน/แก้เนื้อหาได้เฉพาะรายการแผนกตัวเอง (canManage)
   const canSafety = isSafety() && it.status==='recorded';
   const canIssueNo = canManage(it) && it.status==='safety' && it.safety_result==='approved';
+  // 2026-07-17: Safety ใส่/แก้เลข No.PSIF ได้ (บันทึกเลขอย่างเดียว — ปุ่ม "เริ่มดำเนินการ" ยังเป็นของ Admin แผนก/Super Admin)
+  const canSetNo = !canIssueNo && isSafety() && it.status==='safety' && it.safety_result==='approved';
   const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || canManage(it));
   let actions='';
   if(canSafety) actions+=`<div class="note" style="margin-bottom:8px">Safety พิจารณา — เลือก 1 สถานะ</div>
@@ -1305,6 +1380,10 @@ function openItem(id){
       ? `<div class="note">หน่วยงาน ${esc(it.vsm)} เปิดให้ดำเนินการแล้ว — ใส่เลข No.PSIF เพื่อเริ่ม</div>
          <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-orange" onclick="issueNo(${id})">เริ่มดำเนินการ</button></div>`
       : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
+  }
+  if(canSetNo){
+    actions+=`<div class="note">Safety ใส่เลข No.PSIF ได้ที่นี่ — Admin แผนกจะเป็นผู้กด "เริ่มดำเนินการ" ต่อไป</div>
+       <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-blue" onclick="saveNo(${id})">💾 บันทึกเลข</button></div>`;
   }
   if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน${catIsCon(it.category)?' (แนบรูปหลังแก้ไข)':''}</button>`;
   if(isSafety()||canManage(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
@@ -1358,6 +1437,14 @@ async function issueNo(id){
   await patchPsif(id,{no,status:'inprogress'});
   toast('เริ่มดำเนินการแล้ว','green'); closeModal(); refreshAll();
 }
+/* 2026-07-17: Safety บันทึกเลข No.PSIF อย่างเดียว (ไม่เปลี่ยนสถานะ — backend อนุญาต field 'no' สำหรับ role safety อยู่แล้ว) */
+async function saveNo(id){
+  const no=$('noInput_'+id).value.trim(); if(!no){toast('กรอกเลข No.PSIF','red');return;}
+  try{
+    await patchPsif(id,{no});
+    toast('บันทึกเลข No.PSIF แล้ว','green'); closeModal(); refreshAll();
+  }catch(e){ toast('บันทึกไม่สำเร็จ: '+e.message,'red'); }
+}
 let closingId=null, closePhoto=null, closeNeedsPhoto=false;
 function openClose(id){
   const it=state.items.find(x=>x.id==id);
@@ -1402,6 +1489,7 @@ function openEditItem(id){
   const it=state.items.find(x=>x.id==id); if(!it)return;
   openModal('✏️ แก้ไขเนื้อหา', `
     <div class="note" style="margin-bottom:8px">แก้ไขเนื้อหาที่พนักงานส่งเข้ามา — ระบบจะแจ้งเตือนไปยังผู้รายงาน (${esc(it.reporter_name||it.reporter_id)})</div>
+    <label class="fl">เลข No.PSIF</label><input class="inp" id="edNo" value="${esc(it.no||'')}" placeholder="เช่น PSIF-${it.year}-001">
     <label class="fl">ประเภท</label>
     <select class="inp" id="edCat">${FIXED_CATS.map(c=>`<option value="${esc(c.key)}" ${(it.category===c.key||it.category===c.name)?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
     <label class="fl">หัวข้อเรื่อง</label><input class="inp" id="edTitle" value="${esc(it.title||'')}">
@@ -1417,7 +1505,7 @@ async function saveEditItem(id){
   const title=$('edTitle').value.trim();
   if(!title){ toast('กรอกหัวข้อเรื่อง','red'); return; }
   try{
-    await patchPsif(id,{title,category:$('edCat').value,detail:$('edDetail').value.trim(),
+    await patchPsif(id,{title,no:$('edNo').value.trim(),category:$('edCat').value,detail:$('edDetail').value.trim(),
       suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()});
     toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green'); closeModal(); refreshAll();
   }catch(e){ toast('แก้ไขไม่สำเร็จ: '+e.message,'red'); }
@@ -1657,11 +1745,11 @@ function renderMyDash(y){
       <div class="grid g3" style="margin:2px 0 12px">
         <div class="stat blue"><div class="n">${mine.length}</div><div class="l">ส่งแล้ว</div></div>
         <div class="stat green"><div class="n">${done}</div><div class="l">นับผลงาน (อนุมัติ+จบ)</div></div>
-        <div class="stat orange"><div class="n">${bonus}%</div><div class="l">โบนัส</div></div>
+        <div class="stat orange"><div class="n">${bonus}%</div><div class="l">โบนัสส่วน PSIF (เต็ม 10%)</div></div>
       </div>
       <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี — นับเฉพาะเรื่องที่ Safety อนุมัติและจบงานแล้ว</div>
       ${CAT_KEYS.map(catBar).join('')}
-      <div class="note" style="margin-top:10px;font-size:11.5px">${BONUS_RULE_TXT}</div>
+      ${bonusExplainHtml(cat)}
     </div>
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
 }
@@ -2168,7 +2256,7 @@ function exportAllCSV(y){
 }
 function exportPersonCSV(y){
   const {people}=computePerson(y);
-  const head=['id','name','vsm','PSIF (Con)','Near miss','PSIF (Behavior)','submitted','done','approved','rejected','missing','bonus%'];
+  const head=['id','name','vsm','PSIF (Con)','Near miss','PSIF (Behavior)','submitted','done','approved','rejected','missing','PSIF bonus% (เต็ม 10 จากโบนัสรวม 105)'];
   const rows=people.map(p=>[p.id,p.name,p.vsm,p.cats.PSIF,p.cats['Near miss'],p.cats.Behavior,p.submitted,p.done,p.approved,p.rejected,p.missing,p.bonus].map(csvCell).join(','));
   dl(`PSIF_person_${y}.csv`,[head.join(','),...rows].join('\n')); toast('ส่งออกแล้ว','green');
 }
