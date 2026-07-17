@@ -644,7 +644,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.1';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.2';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -736,6 +736,9 @@ function bonusExplainHtml(cats){
     </div>
   </div>`;
 }
+/* 2026-07-18: คำอธิบายโบนัสเป็น popup — แตะกล่อง "โบนัส" ในหน้า "ของฉัน" เพื่อเปิด */
+let _myBonusCats=null;
+function openBonusInfo(){ if(!_myBonusCats) return; openModal('🧮 คำอธิบายโบนัสของคุณ', bonusExplainHtml(_myBonusCats)); }
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -1737,6 +1740,7 @@ function renderMyDash(y){
   const counted=mine.filter(isCounted);
   const cat=newCatMap(); counted.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
   const done=counted.length, bonus=bonusFromCats(cat);
+  _myBonusCats=cat;   // ใช้ตอนแตะกล่องโบนัส → popup คำอธิบาย (openBonusInfo)
   const catBar=k=>{ const v=cat[k],ok=v>=CAT_TARGET;
     return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><div class="track"><div class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%;height:100%"></div></div><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
@@ -1745,11 +1749,10 @@ function renderMyDash(y){
       <div class="grid g3" style="margin:2px 0 12px">
         <div class="stat blue"><div class="n">${mine.length}</div><div class="l">ส่งแล้ว</div></div>
         <div class="stat green"><div class="n">${done}</div><div class="l">นับผลงาน (อนุมัติ+จบ)</div></div>
-        <div class="stat orange"><div class="n">${bonus}%</div><div class="l">โบนัสส่วน PSIF (เต็ม 10%)</div></div>
+        <div class="stat orange" onclick="openBonusInfo()" style="cursor:pointer"><div class="n">${bonus}%</div><div class="l">โบนัสส่วน PSIF — แตะดูคำอธิบาย ℹ️</div></div>
       </div>
       <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี — นับเฉพาะเรื่องที่ Safety อนุมัติและจบงานแล้ว</div>
       ${CAT_KEYS.map(catBar).join('')}
-      ${bonusExplainHtml(cat)}
     </div>
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
 }
