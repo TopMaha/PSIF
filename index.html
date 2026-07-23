@@ -191,7 +191,7 @@ textarea.inp{resize:vertical;min-height:74px}
 .modal-hd{position:sticky;top:0;background:#fff;display:flex;align-items:center;padding:15px 16px;border-bottom:1px solid var(--border);z-index:2}
 .modal-tt{font-weight:800;font-size:16px;flex:1}
 .modal-cl{background:#F1F5F9;border:none;width:32px;height:32px;border-radius:8px;font-size:16px}
-.modal-bd{padding:16px}
+.modal-bd{padding:16px;overflow-wrap:anywhere;word-break:break-word}
 
 /* ---------- bottom nav ---------- */
 .bnav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;align-items:center;
@@ -243,6 +243,7 @@ textarea.inp{resize:vertical;min-height:74px}
 .dropzone.has{border-style:solid;border-color:var(--green-bd);padding:8px;background:#fff}
 .kv{display:flex;gap:10px;font-size:13.5px;padding:7px 0;border-bottom:1px dashed var(--border)}
 .kv .k{color:var(--muted);width:120px;flex-shrink:0;font-weight:500}
+.kv>span:not(.k){min-width:0}
 .warn{background:var(--orange-bg);border:1px solid var(--orange-bd);border-left:4px solid var(--amber);border-radius:10px;padding:11px 13px;font-size:13px;color:#92400E;margin:10px 0}
 .note{background:var(--blue-light);border:1px solid var(--blue-soft);border-left:4px solid var(--blue);border-radius:10px;padding:11px 13px;font-size:12.5px;color:var(--blue-dark)}
 
@@ -644,7 +645,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.3';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.4';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);

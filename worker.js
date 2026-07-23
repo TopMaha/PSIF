@@ -84,7 +84,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '1.3', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '1.4', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees': return await crudRoute(env, request, seg, 'employees');
