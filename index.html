@@ -644,7 +644,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.2';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.3';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -673,14 +673,14 @@ const STATUS = {
   done:      {label:'เสร็จ', cls:'b-green'},
 };
 const STEPS = ['บันทึกเข้าระบบ','Safety อนุมัติ','กำลังดำเนินการ','เสร็จ'];
-/* โบนัสแบบบวกสะสม (แก้ 2026-07-10 ตามกฎล่าสุด):
-   ผ่าน PSIF(Con) ≥2      = 5% (พื้นฐาน — ถ้าไม่ผ่าน ได้ 0%)
+/* โบนัสแบบบวกอิสระ (แก้ 2026-07-23 ตามกฎล่าสุด): แต่ละประเภทบวกได้เอง ไม่ต้องผ่าน PSIF(Con) ก่อน
+   ครบ PSIF(Con) ≥2       = +5%
    ครบ Near miss ≥2       = +2.5%
    ครบ PSIF(Behavior) ≥2  = +2.5%   (สูงสุดรวม 10%) */
 function bonusFromCats(cats){
   const con=cats['PSIF']||0, beh=cats['Behavior']||0, nm=cats['Near miss']||0;
-  if(con<2) return 0;
-  let b=5;
+  let b=0;
+  if(con>=2) b+=5;
   if(nm>=2)  b+=2.5;
   if(beh>=2) b+=2.5;
   return b;
@@ -689,8 +689,8 @@ function bonusFromCats(cats){
    ส่วน PSIF ขยับเป็น 10% ได้เมื่อทำครบทั้ง 3 ประเภท → รวมสูงสุด 105% (เกินเป้าปกติ)
    ตัวเลข % ในแอปนี้ = "ส่วนของ PSIF" เท่านั้น ไม่ใช่โบนัสทั้งก้อน — พนักงานเคยสับสนจุดนี้ */
 const KPI_OTHER_PCT=95, PSIF_BASE_PCT=5, PSIF_MAX_PCT=10;
-const BONUS_RULE_TXT='💡 โบนัสรวม = <b>KPI งานอื่น 95%</b> + <b>ส่วน PSIF</b> (พื้นฐาน 5% = ครบ 100% · ทำครบ 3 ประเภทได้ <b>10%</b> = รวม <b>105%</b>)<br>'
- +'เงื่อนไขส่วน PSIF: ผ่าน PSIF(Con) ≥2 ได้ <b>5%</b> · ครบ Near miss ≥2 เพิ่ม <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 เพิ่ม <b>+2.5%</b> — สูงสุด 10%<br>'
+const BONUS_RULE_TXT='💡 โบนัสรวม = <b>KPI งานอื่น 95%</b> + <b>ส่วน PSIF</b> (ทำครบทุกประเภทได้ <b>10%</b> = รวม <b>105%</b>)<br>'
+ +'เงื่อนไขส่วน PSIF (บวกอิสระแต่ละประเภท ไม่ต้องผ่าน Con ก่อน): ครบ PSIF(Con) ≥2 ได้ <b>+5%</b> · ครบ Near miss ≥2 <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 <b>+2.5%</b> — สูงสุด 10%<br>'
  +'⚖️ นับเฉพาะเรื่องที่ <b>Safety อนุมัติ</b> และ <b>ดำเนินการจนจบ</b> เท่านั้น';
 
 /* การ์ดอธิบายโบนัสรายคน — ตอบคำถาม "ทำครบแล้วทำไมขึ้น 10% ไม่ใช่ 100%?" ด้วยภาพ + ตาราง 4 ขั้น */
@@ -700,7 +700,7 @@ function bonusExplainHtml(cats){
   const total=KPI_OTHER_PCT+b;
   let msg;
   if(b>=PSIF_MAX_PCT) msg='🎉 <b>สุดยอด!</b> คุณทำ PSIF ครบทั้ง 3 ประเภท — ส่วน PSIF ได้เต็ม <b>10%</b> โบนัสรวมของคุณจึงเป็น <b>105%</b> ซึ่ง<b>เกิน</b>เป้าปกติ 100% (เลข "10%" คือส่วนของ PSIF เท่านั้น ไม่ใช่โบนัสทั้งก้อน)';
-  else if(b<=0) msg='ส่วน PSIF ของคุณยังเป็น <b>0%</b> — ต้องมี <b>PSIF (Con)</b> ที่อนุมัติ+จบงานครบ <b>2 เรื่อง</b>ก่อน จึงเริ่มได้ 5% พื้นฐาน (ตอนนี้โบนัสรวมได้แค่ 95%)';
+  else if(b<=0) msg='ส่วน PSIF ของคุณยังเป็น <b>0%</b> — ทำแต่ละประเภทให้ครบ <b>2 เรื่อง</b> (อนุมัติ+จบงาน) เพื่อเริ่มสะสม% : PSIF(Con) <b>+5%</b> · Near miss <b>+2.5%</b> · PSIF(Behavior) <b>+2.5%</b> (ตอนนี้โบนัสรวมได้แค่ 95%)';
   else msg=`ตอนนี้คุณได้ส่วน PSIF <b>${b}%</b> (รวม ${total}%) — ทำให้ครบทุกประเภท (≥2 เรื่อง/ประเภท) เพื่อขยับเป็น <b>10%</b> → โบนัสรวม <b>105%</b>`;
   const chk=(ok,label,val,pct)=>`<div class="bonus-chk"><span>${ok?'✅':'⭕'}</span><span>${label} <b>${val}/${CAT_TARGET}</b> เรื่อง</span><span class="pct" style="color:${ok?'var(--green)':'var(--muted2)'}">${pct}</span></div>`;
   const lvl=(on,psif,tot,cap)=>`<tr class="${on?'on':''}"><td>${cap}</td><td>${psif}</td><td><b>${tot}</b>${on?' ← คุณอยู่ตรงนี้':''}</td></tr>`;
@@ -719,14 +719,15 @@ function bonusExplainHtml(cats){
       <span class="bonus-100" style="left:${(100/105*100).toFixed(1)}%"><i>เป้า 100%</i></span>
     </div>
     <div class="sub" style="margin:8px 0">${msg}</div>
-    ${chk(con>=CAT_TARGET,'PSIF (Con)',con, con>=CAT_TARGET?'ได้ 5% พื้นฐาน':'ยังไม่ได้ 5% พื้นฐาน')}
-    ${chk(nm>=CAT_TARGET,'Near miss',nm, nm>=CAT_TARGET?(con>=CAT_TARGET?'+2.5%':'จะได้ +2.5% เมื่อผ่าน (Con)'):'ยัง +2.5% ไม่ได้')}
-    ${chk(beh>=CAT_TARGET,'PSIF (Behavior)',beh, beh>=CAT_TARGET?(con>=CAT_TARGET?'+2.5%':'จะได้ +2.5% เมื่อผ่าน (Con)'):'ยัง +2.5% ไม่ได้')}
+    ${chk(con>=CAT_TARGET,'PSIF (Con)',con, con>=CAT_TARGET?'+5%':'ยังไม่ได้ +5%')}
+    ${chk(nm>=CAT_TARGET,'Near miss',nm, nm>=CAT_TARGET?'+2.5%':'ยังไม่ได้ +2.5%')}
+    ${chk(beh>=CAT_TARGET,'PSIF (Behavior)',beh, beh>=CAT_TARGET?'+2.5%':'ยังไม่ได้ +2.5%')}
     <table class="bonus-tbl">
       <tr><th>ผลงาน PSIF ของคุณ</th><th>ส่วน PSIF</th><th>โบนัสรวม*</th></tr>
-      ${lvl(b===0,'0%','95%','ยังไม่ผ่าน PSIF (Con)')}
-      ${lvl(b===5,'5%','100%','PSIF (Con) ครบ 2')}
-      ${lvl(b===7.5,'7.5%','102.5%','Con + อีก 1 ประเภทครบ')}
+      ${lvl(b===0,'0%','95%','ยังไม่ครบประเภทใด')}
+      ${lvl(b===2.5,'2.5%','97.5%','ครบ Near miss หรือ Behavior 1 ประเภท')}
+      ${lvl(b===5,'5%','100%','ครบ PSIF (Con) · หรือครบ Near miss + Behavior')}
+      ${lvl(b===7.5,'7.5%','102.5%','ครบ PSIF (Con) + อีก 1 ประเภท')}
       ${lvl(b===10,'10%','105% 🎉','ครบทั้ง 3 ประเภท')}
     </table>
     <div class="note" style="margin-top:8px;font-size:11.5px">
