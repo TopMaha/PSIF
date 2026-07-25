@@ -136,7 +136,7 @@ textarea.inp{resize:vertical;min-height:74px}
 
 /* ---------- stepper ---------- */
 .stepper{display:flex;align-items:center;margin:6px 0}
-.step{flex:1;text-align:center;position:relative;font-size:10.5px;color:var(--muted2);font-weight:600}
+.step{flex:1;min-width:0;text-align:center;position:relative;font-size:10.5px;color:var(--muted2);font-weight:600}
 .step .dot{width:22px;height:22px;border-radius:50%;background:#E2E8F0;color:#fff;display:grid;place-items:center;margin:0 auto 4px;font-size:11px;font-weight:800;position:relative;z-index:2}
 .step::before{content:"";position:absolute;top:11px;left:-50%;width:100%;height:2px;background:#E2E8F0;z-index:1}
 .step:first-child::before{display:none}
@@ -185,13 +185,13 @@ textarea.inp{resize:vertical;min-height:74px}
 /* ---------- modal ---------- */
 .modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(2px)}
 .modal-bg.open{display:flex}
-.modal{background:#fff;width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;overflow:auto;box-shadow:var(--shadow-lg);animation:slideup .25s ease}
+.modal{background:#fff;width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;overflow-y:auto;overflow-x:hidden;box-shadow:var(--shadow-lg);animation:slideup .25s ease}
 @media(min-width:560px){.modal-bg{align-items:center}.modal{border-radius:18px}}
 @keyframes slideup{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
 .modal-hd{position:sticky;top:0;background:#fff;display:flex;align-items:center;padding:15px 16px;border-bottom:1px solid var(--border);z-index:2}
 .modal-tt{font-weight:800;font-size:16px;flex:1}
 .modal-cl{background:#F1F5F9;border:none;width:32px;height:32px;border-radius:8px;font-size:16px}
-.modal-bd{padding:16px;overflow-wrap:anywhere;word-break:break-word}
+.modal-bd{padding:16px;overflow-wrap:break-word;overflow-wrap:anywhere;word-break:break-word}
 
 /* ---------- bottom nav ---------- */
 .bnav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;align-items:center;
@@ -645,7 +645,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.4';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.5';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
