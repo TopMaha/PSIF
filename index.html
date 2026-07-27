@@ -622,7 +622,8 @@ label.fl{font-weight:600;letter-spacing:.2px}
 <datalist id="machineList"></datalist>
 
 <!-- modal -->
-<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+<!-- 2026-07-27: กดนอกโมดัลไม่ปิด (กันคนลากเมาส์เกินตอน copy แล้วโมดัลปิดเอง) — ปิดได้ทางปุ่ม ✕ มุมขวาบนเท่านั้น -->
+<div class="modal-bg" id="modalBg">
   <div class="modal">
     <div class="modal-hd"><span class="modal-tt" id="modalTt">รายละเอียด</span><button class="modal-cl" onclick="closeModal()">✕</button></div>
     <div class="modal-bd" id="modalBd"></div>
@@ -645,7 +646,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.5';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.6';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -1383,12 +1384,12 @@ function openItem(id){
     const gate=hasIssuance(it.vsm,it.year);
     actions+= gate
       ? `<div class="note">หน่วยงาน ${esc(it.vsm)} เปิดให้ดำเนินการแล้ว — ใส่เลข No.PSIF เพื่อเริ่ม</div>
-         <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-orange" onclick="issueNo(${id})">เริ่มดำเนินการ</button></div>`
+         <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น 26-CHU-1145520" value="${esc(it.no||'')}"><button class="btn btn-orange" onclick="issueNo(${id})">เริ่มดำเนินการ</button></div>`
       : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
   }
   if(canSetNo){
     actions+=`<div class="note">Safety ใส่เลข No.PSIF ได้ที่นี่ — Admin แผนกจะเป็นผู้กด "เริ่มดำเนินการ" ต่อไป</div>
-       <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น PSIF-${it.year}-001" value="${esc(it.no||'')}"><button class="btn btn-blue" onclick="saveNo(${id})">💾 บันทึกเลข</button></div>`;
+       <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น 26-CHU-1145520" value="${esc(it.no||'')}"><button class="btn btn-blue" onclick="saveNo(${id})">💾 บันทึกเลข</button></div>`;
   }
   if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน${catIsCon(it.category)?' (แนบรูปหลังแก้ไข)':''}</button>`;
   if(isSafety()||canManage(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
@@ -1437,16 +1438,26 @@ async function safetyAct(id,result){
   toast(msg, result==='approved'?'green':'orange');
   closeModal(); refreshAll();
 }
+/* 2026-07-27: ป้องกันลงเลข No.PSIF ผิดรูปแบบ — ต้องเป็น เลข-ตัวอักษร-เลข เช่น 26-CHU-1145520
+   คืน {ok, value} โดย value คือค่าที่ trim + ตัวอักษรเป็นพิมพ์ใหญ่ให้อัตโนมัติ */
+const PSIF_NO_RE=/^\d{2}-[A-Za-z]+-\d+$/;
+const PSIF_NO_EXAMPLE='26-CHU-1145520';
+function validatePsifNo(raw){
+  const v=(raw||'').trim().toUpperCase();
+  if(!v) return {ok:false,value:'',msg:'กรอกเลข No.PSIF'};
+  if(!PSIF_NO_RE.test(v)) return {ok:false,value:v,msg:`เลข No.PSIF ผิดรูปแบบ — ต้องเป็น เลข-ตัวอักษร-เลข เช่น ${PSIF_NO_EXAMPLE}`};
+  return {ok:true,value:v,msg:''};
+}
 async function issueNo(id){
-  const no=$('noInput_'+id).value.trim(); if(!no){toast('กรอกเลข No.PSIF','red');return;}
-  await patchPsif(id,{no,status:'inprogress'});
+  const chk=validatePsifNo($('noInput_'+id).value); if(!chk.ok){toast(chk.msg,'red');return;}
+  await patchPsif(id,{no:chk.value,status:'inprogress'});
   toast('เริ่มดำเนินการแล้ว','green'); closeModal(); refreshAll();
 }
 /* 2026-07-17: Safety บันทึกเลข No.PSIF อย่างเดียว (ไม่เปลี่ยนสถานะ — backend อนุญาต field 'no' สำหรับ role safety อยู่แล้ว) */
 async function saveNo(id){
-  const no=$('noInput_'+id).value.trim(); if(!no){toast('กรอกเลข No.PSIF','red');return;}
+  const chk=validatePsifNo($('noInput_'+id).value); if(!chk.ok){toast(chk.msg,'red');return;}
   try{
-    await patchPsif(id,{no});
+    await patchPsif(id,{no:chk.value});
     toast('บันทึกเลข No.PSIF แล้ว','green'); closeModal(); refreshAll();
   }catch(e){ toast('บันทึกไม่สำเร็จ: '+e.message,'red'); }
 }
@@ -1494,7 +1505,7 @@ function openEditItem(id){
   const it=state.items.find(x=>x.id==id); if(!it)return;
   openModal('✏️ แก้ไขเนื้อหา', `
     <div class="note" style="margin-bottom:8px">แก้ไขเนื้อหาที่พนักงานส่งเข้ามา — ระบบจะแจ้งเตือนไปยังผู้รายงาน (${esc(it.reporter_name||it.reporter_id)})</div>
-    <label class="fl">เลข No.PSIF</label><input class="inp" id="edNo" value="${esc(it.no||'')}" placeholder="เช่น PSIF-${it.year}-001">
+    <label class="fl">เลข No.PSIF</label><input class="inp" id="edNo" value="${esc(it.no||'')}" placeholder="เช่น 26-CHU-1145520">
     <label class="fl">ประเภท</label>
     <select class="inp" id="edCat">${FIXED_CATS.map(c=>`<option value="${esc(c.key)}" ${(it.category===c.key||it.category===c.name)?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
     <label class="fl">หัวข้อเรื่อง</label><input class="inp" id="edTitle" value="${esc(it.title||'')}">
@@ -1509,8 +1520,11 @@ function openEditItem(id){
 async function saveEditItem(id){
   const title=$('edTitle').value.trim();
   if(!title){ toast('กรอกหัวข้อเรื่อง','red'); return; }
+  // No.PSIF ในหน้าแก้ไขไม่บังคับ แต่ถ้ากรอกต้องถูกรูปแบบ
+  const noRaw=$('edNo').value.trim(); let noVal='';
+  if(noRaw){ const chk=validatePsifNo(noRaw); if(!chk.ok){toast(chk.msg,'red');return;} noVal=chk.value; }
   try{
-    await patchPsif(id,{title,no:$('edNo').value.trim(),category:$('edCat').value,detail:$('edDetail').value.trim(),
+    await patchPsif(id,{title,no:noVal,category:$('edCat').value,detail:$('edDetail').value.trim(),
       suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()});
     toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green'); closeModal(); refreshAll();
   }catch(e){ toast('แก้ไขไม่สำเร็จ: '+e.message,'red'); }
