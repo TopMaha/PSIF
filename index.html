@@ -646,7 +646,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.6';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.7';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -1680,9 +1680,12 @@ function renderDash(){
   // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
   const teamChip=((['teamleader','manager'].includes(CURRENT_USER.role)||isDeptAdmin())&&myVsm())
     ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
+  // Admin แผนก/Safety/Super Admin: ดึงรายงานรายคนทุกกลุ่มเป็น Excel ได้จากแดชบอร์ดเลย
+  const xlsChip=(isSafety()||isDeptAdmin())
+    ? `<button class="chip" onclick="exportTeamXlsx(null,+($('dashYear').value||yr()))">📊 Excel รายคน${isDeptAdmin()?'':' (ทุกกลุ่ม)'}</button>` : '';
   $('dashScope').innerHTML=`
     <button class="chip ${!dashMine?'on':''}" onclick="dashMine=false;renderDash()">${isDeptAdmin()?'🏭 แผนกของฉัน':'🏭 ทั้งโรงงาน'}</button>
-    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}`;
+    <button class="chip ${dashMine?'on':''}" onclick="dashMine=true;renderDash()">🙋 ของฉัน</button>${teamChip}${xlsChip}`;
   if(dashMine){ renderMyDash(y); return; }
 
   // ข้อ 3: Admin แผนก เห็นเฉพาะแผนกตัวเอง (backend scope แล้ว — กรองซ้ำกันเหนียว)
@@ -1872,7 +1875,9 @@ function openTeam(dept){
         <option value="name">เรียง: ชื่อ ก → ฮ</option>
       </select>
     </div>
-    <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · “เหลือ” = ยังขาดอีกกี่เรื่องจึงครบทุกประเภท · นับเฉพาะเรื่องที่<b>อนุมัติ+จบงาน</b></div>
+    <button class="btn btn-green btn-sm btn-block" style="margin-bottom:8px" onclick="exportTeamXlsx(teamDept,teamYear)">📊 Export Excel — รายงานรายคน</button>
+    <div class="sub" style="margin-bottom:8px">เป้า ${CAT_TARGET} เรื่อง/ประเภท (รวม ${PERSON_TARGET}/คน/ปี) · “เหลือ” = ยังขาดอีกกี่เรื่องจึงครบทุกประเภท · นับเฉพาะเรื่องที่<b>อนุมัติ+จบงาน</b><br>
+      ไฟล์ Excel มี 3 ชีต: <b>รายคน</b> (ครบ/ขาด แยกประเภท) · <b>สรุปตามประเภท</b> · <b>ต้องตามงาน</b> — ได้ทุกคนในกลุ่มนี้ ไม่ขึ้นกับคำค้นบนหน้าจอ</div>
     <div id="teamSum"></div>
     <div id="teamList"></div>`);
   renderTeamList();
@@ -2190,15 +2195,77 @@ function xmlEsc(s){return String(s==null?'':s)
   .replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');}   // ตัด control chars ที่ XML ห้าม
 function colRef(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26;}return s;}
-function sheetXml(rows){
-  const rx=rows.map((row,ri)=>'<row r="'+(ri+1)+'">'+row.map((v,ci)=>{
-    const ref=colRef(ci)+(ri+1);
-    if(typeof v==='number'&&isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`;
-    const s=xmlEsc(v); if(s==='') return '';
-    return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${s}</t></is></c>`;
-  }).join('')+'</row>').join('');
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rx}</sheetData></worksheet>`;
+
+/* ---- สไตล์ของไฟล์ (styles.xml) — ทำให้รายงานอ่านง่าย: หัวตารางสีน้ำเงิน แถบสลับสี เขียว=ครบ แดง=ขาด
+       XS = ดัชนีสไตล์ที่ใช้อ้างในเซลล์ {v:ค่า, s:XS.xxx} ---- */
+const _xfill=rgb=>`<fill><patternFill patternType="solid"><fgColor rgb="${rgb}"/><bgColor indexed="64"/></patternFill></fill>`;
+const _xbdr=rgb=>`<border><left style="thin"><color rgb="${rgb}"/></left><right style="thin"><color rgb="${rgb}"/></right>`
+  +`<top style="thin"><color rgb="${rgb}"/></top><bottom style="thin"><color rgb="${rgb}"/></bottom><diagonal/></border>`;
+const _xcx=(f,fl,b,o)=>{o=o||{};
+  return `<xf numFmtId="${o.n||0}" fontId="${f}" fillId="${fl}" borderId="${b}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"${o.n?' applyNumberFormat="1"':''}>`
+    +`<alignment horizontal="${o.h||'left'}" vertical="${o.v||'center'}"${o.w?' wrapText="1"':''}/></xf>`;};
+const XS={def:0,title:1,sub:2,head:3,head2:4,txt:5,txtB:6,num:7,numB:8,good:9,bad:10,warn:11,
+          bold:12,boldB:13,kpiL:14,kpiV:15,totL:16,tot:17,pct:18,pctB:19,sec:20,note:21};
+const XLSX_STYLES='<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+ +'<fonts count="8">'
+   +'<font><sz val="11"/><color rgb="FF0E1B33"/><name val="Tahoma"/></font>'                 /* 0 ปกติ */
+   +'<font><b/><sz val="18"/><color rgb="FF0B2A6B"/><name val="Tahoma"/></font>'             /* 1 หัวรายงาน */
+   +'<font><sz val="10"/><color rgb="FF5A6B86"/><name val="Tahoma"/></font>'                 /* 2 คำอธิบาย */
+   +'<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Tahoma"/></font>'             /* 3 หัวตาราง */
+   +'<font><b/><sz val="11"/><color rgb="FF0E1B33"/><name val="Tahoma"/></font>'             /* 4 ตัวหนา */
+   +'<font><b/><sz val="11"/><color rgb="FF15803D"/><name val="Tahoma"/></font>'             /* 5 เขียว */
+   +'<font><b/><sz val="11"/><color rgb="FFC81E1E"/><name val="Tahoma"/></font>'             /* 6 แดง */
+   +'<font><b/><sz val="14"/><color rgb="FF1D4ED8"/><name val="Tahoma"/></font>'             /* 7 ตัวเลข KPI */
+ +'</fonts>'
+ +'<fills count="9"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+   +_xfill('FF1D4ED8')+_xfill('FF2C5BC7')+_xfill('FFF5F8FD')+_xfill('FFECFDF3')+_xfill('FFFEF2F2')+_xfill('FFFFF7ED')+_xfill('FFEAF1FE')
+ +'</fills>'
+ +'<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border>'+_xbdr('FFDCE6F7')+_xbdr('FFBFD4FB')+'</borders>'
+ +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+ +'<cellXfs count="22">'
+   +_xcx(0,0,0)+_xcx(1,0,0)+_xcx(2,0,0)                                   /* 0 def · 1 title · 2 sub */
+   +_xcx(3,2,1,{h:'center',w:1})+_xcx(3,3,1,{h:'center',w:1})             /* 3 head · 4 head2 */
+   +_xcx(0,0,1)+_xcx(0,4,1)                                               /* 5 txt · 6 txtB (แถบสลับ) */
+   +_xcx(0,0,1,{h:'center'})+_xcx(0,4,1,{h:'center'})                     /* 7 num · 8 numB */
+   +_xcx(5,5,1,{h:'center'})+_xcx(6,6,1,{h:'center'})+_xcx(4,7,1,{h:'center'})  /* 9 ครบ · 10 ขาด · 11 เตือน */
+   +_xcx(4,0,1)+_xcx(4,4,1)                                               /* 12 bold · 13 boldB */
+   +_xcx(2,8,2,{h:'center',w:1})+_xcx(7,8,2,{h:'center'})                 /* 14 KPI label · 15 KPI value */
+   +_xcx(4,8,1)+_xcx(4,8,1,{h:'center'})                                  /* 16 แถวรวม(ซ้าย) · 17 แถวรวม(กลาง) */
+   +_xcx(0,0,1,{h:'center',n:9})+_xcx(0,4,1,{h:'center',n:9})             /* 18 % · 19 % (แถบสลับ) */
+   +_xcx(4,8,1)+_xcx(2,0,0,{v:'top',w:1})                                 /* 20 หัวข้อย่อย · 21 หมายเหตุ */
+ +'</cellXfs>'
+ +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+ +'<dxfs count="0"/><tableStyles count="0"/></styleSheet>';
+
+/* เซลล์: ค่าดิบ (ตัวเลข/ข้อความ) หรือ {v,s} โดย s = ดัชนีสไตล์ — เซลล์ว่างที่มีสไตล์ยังต้องเขียน (เส้นขอบ/สีพื้น) */
+function xlsxCell(v,ci,ri){
+  let s=0, val=v;
+  if(v && typeof v==='object'){ s=v.s||0; val=v.v; }
+  const ref=colRef(ci)+ri, sa=s?` s="${s}"`:'';
+  if(typeof val==='number'&&isFinite(val)) return `<c r="${ref}"${sa}><v>${val}</v></c>`;
+  const t=xmlEsc(val);
+  if(t==='') return s?`<c r="${ref}"${sa}/>`:'';
+  return `<c r="${ref}"${sa} t="inlineStr"><is><t xml:space="preserve">${t}</t></is></c>`;
+}
+/* sheet: {name, rows, cols:[ความกว้าง], merges:['A1:Q1'], freeze:{x,y}, filter:'A9:Q99', hts:{แถว:สูง}} */
+function xlsxSheetXml(sh){
+  const rows=sh.rows||[];
+  const nCol=Math.max(1,...rows.map(r=>r.length),1);
+  const dim=`A1:${colRef(nCol-1)}${Math.max(1,rows.length)}`;
+  const cols=(sh.cols||[]).map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('');
+  const fz=sh.freeze, fx=fz?(fz.x||0):0, fy=fz?(fz.y||0):0;
+  const pane=fz?`<pane ${fx?`xSplit="${fx}" `:''}ySplit="${fy}" topLeftCell="${colRef(fx)}${fy+1}" activePane="${fx?'bottomRight':'bottomLeft'}" state="frozen"/>`:'';
+  const data=rows.map((row,ri)=>{
+    const h=(sh.hts&&sh.hts[ri+1])?` ht="${sh.hts[ri+1]}" customHeight="1"`:'';
+    return `<row r="${ri+1}"${h}>`+row.map((v,ci)=>xlsxCell(v,ci,ri+1)).join('')+'</row>';
+  }).join('');
+  const mg=(sh.merges&&sh.merges.length)?`<mergeCells count="${sh.merges.length}">`+sh.merges.map(m=>`<mergeCell ref="${m}"/>`).join('')+'</mergeCells>':'';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +`<dimension ref="${dim}"/><sheetViews><sheetView showGridLines="0" workbookViewId="0">${pane}</sheetView></sheetViews>`
+    +'<sheetFormatPr defaultRowHeight="18"/>'+(cols?`<cols>${cols}</cols>`:'')
+    +`<sheetData>${data}</sheetData>`+(sh.filter?`<autoFilter ref="${sh.filter}"/>`:'')+mg
+    +'<pageMargins left="0.4" right="0.4" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>';
 }
 function zipStore(files){ // files:[{name,data:Uint8Array}] → Blob(.zip) — method 0 (stored)
   const enc=new TextEncoder(); const parts=[]; const central=[]; let offset=0;
@@ -2225,19 +2292,48 @@ function zipStore(files){ // files:[{name,data:Uint8Array}] → Blob(.zip) — m
   return new Blob([...parts,...central,new Uint8Array(eo.buffer)],
     {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
-function xlsxDownload(filename,rows){
+/* สร้างสมุดงาน .xlsx หลายชีต + สไตล์ แล้วสั่งดาวน์โหลด */
+function xlsxSafeName(n,i){ return (String(n||('Sheet'+i)).replace(/[\\/:*?[\]]/g,'-')).slice(0,31)||('Sheet'+i); }
+function xlsxBook(filename,sheets){
   const enc=new TextEncoder();
   const X='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const R='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const n=sheets.length;
   const files=[
-    {name:'[Content_Types].xml',xml:X+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'},
-    {name:'_rels/.rels',xml:X+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
-    {name:'xl/workbook.xml',xml:X+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="PSIF" sheetId="1" r:id="rId1"/></sheets></workbook>'},
-    {name:'xl/_rels/workbook.xml.rels',xml:X+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'},
-    {name:'xl/worksheets/sheet1.xml',xml:sheetXml(rows)},
+    {name:'[Content_Types].xml',xml:X+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+      +'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      +'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      +sheets.map((s,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')+'</Types>'},
+    {name:'_rels/.rels',xml:X+`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {name:'xl/workbook.xml',xml:X+`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${R}"><sheets>`
+      +sheets.map((s,i)=>`<sheet name="${xmlEsc(xlsxSafeName(s.name,i+1))}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')+'</sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',xml:X+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      +sheets.map((s,i)=>`<Relationship Id="rId${i+1}" Type="${R}/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')
+      +`<Relationship Id="rId${n+1}" Type="${R}/styles" Target="styles.xml"/></Relationships>`},
+    {name:'xl/styles.xml',xml:X+XLSX_STYLES},
+    ...sheets.map((s,i)=>({name:`xl/worksheets/sheet${i+1}.xml`,xml:xlsxSheetXml(s)})),
   ].map(f=>({name:f.name,data:enc.encode(f.xml)}));
   const a=document.createElement('a');
   a.href=URL.createObjectURL(zipStore(files)); a.download=filename; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+/* ความกว้างคอลัมน์อัตโนมัติจากความยาวข้อความ (ไทยกว้างกว่าละติน จึงคูณเผื่อเล็กน้อย) */
+function xlsxAutoCols(rows,min,max){
+  const n=Math.max(...rows.map(r=>r.length));
+  return Array.from({length:n},(_,c)=>{
+    const len=rows.reduce((m,r)=>{ const v=r[c], t=(v&&typeof v==='object')?v.v:v; return Math.max(m,String(t==null?'':t).length); },0);
+    return Math.min(max||40,Math.max(min||9,Math.round(len*1.12)+3));
+  });
+}
+/* ตารางเดียว แถวแรก = หัวตาราง (ใช้กับปุ่ม Report หน้าติดตาม) — ตรึงหัว + ตัวกรอง + แถบสลับสี */
+function xlsxDownload(filename,rows,sheetName){
+  const head=(rows[0]||[]).map(h=>({v:h,s:XS.head}));
+  const body=rows.slice(1).map((r,ri)=>r.map(v=>({v,s:typeof v==='number'&&isFinite(v)?(ri%2?XS.numB:XS.num):(ri%2?XS.txtB:XS.txt)})));
+  const out=[head,...body];
+  const nCol=head.length||1;
+  xlsxBook(filename,[{name:sheetName||'PSIF',rows:out,cols:xlsxAutoCols(out,9,44),
+    freeze:{y:1}, filter:`A1:${colRef(nCol-1)}${out.length}`, hts:{1:26}}]);
 }
 /* ข้อ 5: ปุ่ม Report หน้าติดตาม — export ตาม filter ที่เลือกอยู่บนหน้าจอ ครบทุกฟิลด์ของ PSIF
    สิทธิ์: Admin แผนก (เห็นเฉพาะแผนกตัวเอง — ถูก scope ทั้ง backend และ listBaseItems แล้ว) / Safety / Super Admin */
@@ -2262,6 +2358,173 @@ function exportReportXlsx(){
   const scopeTxt=listScope==='mine'?'ของฉัน':(listScope==='all'?(isDeptAdmin()?(myVsm()||'แผนก'):'ทั้งหมด'):listScope);
   xlsxDownload(`PSIF_Report_${scopeTxt}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\/:*?"<>|]/g,'-'),rows);
   toast(`📊 ส่งออก ${arr.length.toLocaleString()} รายการเป็น Excel แล้ว`,'green');
+}
+
+/* ====================================================================
+ *  EXPORT EXCEL — รายงานรายคน สำหรับหัวหน้า (Admin / Manager / Team Leader)
+ *  ตอบคำถาม "ใครเหลือกี่เรื่อง ประเภทอะไรบ้าง" · 3 ชีต:
+ *    1) รายคน        — ครบ/ขาด แยกประเภท + สถานะ + โบนัส (ตรึงหัว + ตัวกรอง)
+ *    2) สรุปตามประเภท — ภาพรวมประเภท และแยกตามหน่วยงาน/VSM
+ *    3) ต้องตามงาน    — เฉพาะคนที่ยังไม่ครบ เรียงขาดมาก → น้อย (เอาไว้ตามงาน)
+ *  สิทธิ์: กลุ่มเดียว = ตาม canDrill (TL/Manager ของกลุ่มนั้น) · ทุกกลุ่ม = Admin แผนก/Safety/Super Admin
+ * ==================================================================== */
+const XRPT_COLS=17;                                       // ชีต "รายคน" = A..Q
+function xrow(n,s){ const a=new Array(n); for(let i=0;i<n;i++)a[i]={v:'',s:s||0}; return a; }
+function xput(row,i,v,s){ row[i]={v:v,s:s||0}; }
+function deptKey(d){ return (d||'').trim()||'(ไม่ระบุ)'; }
+function xNowTxt(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+function exportTeamXlsx(dept,y){
+  y=+(y||teamYear||($('dashYear')&&$('dashYear').value)||yr());
+  if(dept){ if(!canDrill(dept)){ toast('เฉพาะหัวหน้าทีม/ผู้จัดการของกลุ่มนี้ หรือ Safety/Admin','orange'); return; } }
+  else if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Safety / Super Admin','orange'); return; }
+
+  const {people}=computePerson(y);
+  const arr=dept? people.filter(p=>deptKey(p.vsm)===dept) : people.slice();
+  if(!arr.length){ toast('ไม่มีพนักงานในกลุ่มนี้','orange'); return; }
+  // ขาดรายประเภท (ส่งเกินประเภทหนึ่งไม่ชดเชยอีกประเภท) — ตรรกะเดียวกับ "เหลือ" บนหน้าจอ
+  arr.forEach(p=>{ p.lack={}; CAT_KEYS.forEach(k=>{ p.lack[k]=Math.max(0,CAT_TARGET-(p.cats[k]||0)); });
+    p.left=CAT_KEYS.reduce((s,k)=>s+p.lack[k],0); });
+  arr.sort((a,b)=> (dept?0:deptKey(a.vsm).localeCompare(deptKey(b.vsm),'th')) || b.left-a.left || (a.name||'').localeCompare(b.name||'','th'));
+
+  const scope=dept||(isDeptAdmin()?(myVsm()||'แผนกของฉัน'):'ทุกหน่วยงาน');
+  const okN=arr.filter(p=>p.left===0).length;
+  const lackTotal=arr.reduce((s,p)=>s+p.left,0);
+  const who=CURRENT_USER?`${CURRENT_USER.name} (${CURRENT_USER.id})`:'-';
+  const head1=`รายงาน PSIF รายคน — ${scope} (ปี ${y})`;
+  const head2=`เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/คน/ปี (รวม ${PERSON_TARGET} เรื่อง) · “ขาด” = ยังต้องส่งอีกกี่เรื่องจึงครบประเภทนั้น · นับเฉพาะเรื่องที่ Safety อนุมัติ + จบงานแล้ว`;
+  const head3=`ออกรายงานโดย ${who} · ${xNowTxt()} · TENNECO Chonburi Plant`;
+
+  xlsxBook(`PSIF_รายคน_${scope}_${y}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\/:*?"<>|]/g,'-'),
+    [ xSheetPeople(arr,{head1,head2,head3,okN,lackTotal,y}), xSheetSummary(arr,{head1,head3,y,dept}), xSheetFollow(arr,{scope,y,head3}) ]);
+  toast(`📊 ส่งออกรายงาน ${arr.length.toLocaleString()} คน เป็น Excel แล้ว`,'green');
+}
+
+/* ---- ชีต 1: รายคน ---- */
+function xSheetPeople(arr,o){
+  const N=XRPT_COLS, LAST=colRef(N-1), rows=[], merges=[], hts={};
+  const r1=xrow(N,XS.title); xput(r1,0,o.head1,XS.title); rows.push(r1); merges.push(`A1:${LAST}1`); hts[1]=34;
+  const r2=xrow(N,XS.sub);   xput(r2,0,o.head2,XS.sub);   rows.push(r2); merges.push(`A2:${LAST}2`);
+  const r3=xrow(N,XS.sub);   xput(r3,0,o.head3,XS.sub);   rows.push(r3); merges.push(`A3:${LAST}3`);
+  rows.push(xrow(N,XS.def));                                            // แถว 4 เว้นว่าง
+  // แถว 5-6: การ์ดสรุป (KPI) — 5 ช่อง กว้าง 3/3/3/4/4 คอลัมน์
+  const segs=[[0,3,'พนักงานทั้งหมด (คน)',arr.length],
+              [3,3,'ครบเป้าแล้ว (คน)',o.okN],
+              [6,3,'ยังไม่ครบ (คน)',arr.length-o.okN],
+              [9,4,'ต้องส่งเพิ่มอีก (เรื่อง)',o.lackTotal],
+              [13,4,'% คนที่ครบเป้า',arr.length?Math.round(o.okN/arr.length*100)+'%':'0%']];
+  const r5=xrow(N,XS.kpiL), r6=xrow(N,XS.kpiV);
+  segs.forEach(([c,w,lbl,val])=>{ xput(r5,c,lbl,XS.kpiL); xput(r6,c,val,XS.kpiV);
+    merges.push(`${colRef(c)}5:${colRef(c+w-1)}5`,`${colRef(c)}6:${colRef(c+w-1)}6`); });
+  rows.push(r5,r6); hts[5]=20; hts[6]=28;
+  rows.push(xrow(N,XS.def));                                            // แถว 7 เว้นว่าง
+  // แถว 8 = แถบกลุ่มคอลัมน์ (ผสานเฉพาะภายในแถวเดียว จึงไม่ชนกับตัวกรองที่แถว 9)
+  // แถว 9 = หัวตารางจริง (ทุกคอลัมน์มีชื่อของตัวเอง → ตัวกรอง/เรียงลำดับใน Excel ใช้ได้ปกติ)
+  const h8=xrow(N,XS.head);
+  xput(h8,0,'ข้อมูลพนักงาน',XS.head); merges.push('A8:D8');
+  CAT_KEYS.forEach((k,gi)=>{ const c=4+gi*2;
+    xput(h8,c,`${catLabel(k)} — เป้า ${CAT_TARGET}`,XS.head); merges.push(`${colRef(c)}8:${colRef(c+1)}8`); });
+  xput(h8,10,'สรุปผล / สถานะ',XS.head); merges.push(`K8:${LAST}8`);
+  const h9=['ลำดับ','รหัสพนักงาน','ชื่อ - นามสกุล','หน่วยงาน / VSM','ทำได้','ขาด','ทำได้','ขาด','ทำได้','ขาด',
+    'เหลือรวม (เรื่อง)','ประเภทที่ยังขาด','ส่งทั้งหมด','ผ่านเกณฑ์ (อนุมัติ+จบ)','ความคืบหน้า','สถานะ','โบนัสส่วน PSIF']
+    .map(h=>({v:h,s:XS.head2}));
+  rows.push(h8,h9); hts[8]=24; hts[9]=32;
+  // ข้อมูลรายคน (แถบสลับสีอ่านง่าย)
+  arr.forEach((p,i)=>{
+    const b=i%2, r=xrow(N,b?XS.txtB:XS.txt), num=b?XS.numB:XS.num, txt=b?XS.txtB:XS.txt;
+    xput(r,0,i+1,num); xput(r,1,p.id||'',num); xput(r,2,p.name||'',b?XS.boldB:XS.bold); xput(r,3,deptKey(p.vsm),txt);
+    CAT_KEYS.forEach((k,gi)=>{ const c=4+gi*2, got=p.cats[k]||0, lack=p.lack[k];
+      xput(r,c,got,got>=CAT_TARGET?XS.good:num); xput(r,c+1,lack,lack>0?XS.bad:num); });
+    xput(r,10,p.left,p.left>0?XS.bad:XS.good);
+    xput(r,11,p.left?CAT_KEYS.filter(k=>p.lack[k]>0).map(k=>`${catLabel(k)} ${p.lack[k]}`).join(' · '):'— ครบทุกประเภท —',txt);
+    xput(r,12,p.submitted,num); xput(r,13,p.done,num);
+    xput(r,14,(PERSON_TARGET-p.left)/PERSON_TARGET,b?XS.pctB:XS.pct);
+    xput(r,15,p.left?`ยังขาด ${p.left} เรื่อง`:'ครบเป้าแล้ว',p.left?XS.bad:XS.good);
+    xput(r,16,p.bonus+'%',num);
+    rows.push(r);
+  });
+  const lastData=rows.length;
+  // แถวรวม
+  const t=xrow(N,XS.tot); xput(t,0,'',XS.tot); xput(t,2,`รวม ${arr.length.toLocaleString()} คน`,XS.totL); xput(t,3,'',XS.tot);
+  CAT_KEYS.forEach((k,gi)=>{ const c=4+gi*2;
+    xput(t,c,arr.reduce((s,p)=>s+(p.cats[k]||0),0),XS.tot); xput(t,c+1,arr.reduce((s,p)=>s+p.lack[k],0),XS.tot); });
+  xput(t,10,o.lackTotal,XS.tot); xput(t,11,'',XS.tot);
+  xput(t,12,arr.reduce((s,p)=>s+p.submitted,0),XS.tot); xput(t,13,arr.reduce((s,p)=>s+p.done,0),XS.tot);
+  xput(t,14,arr.length?(PERSON_TARGET*arr.length-o.lackTotal)/(PERSON_TARGET*arr.length):0,XS.tot);
+  xput(t,15,`ครบเป้า ${o.okN}/${arr.length} คน`,XS.tot); xput(t,16,'',XS.tot);
+  rows.push(t);
+  rows.push(xrow(N,XS.def));
+  const note=xrow(N,XS.note);
+  xput(note,0,'หมายเหตุ: ตัวเลขทั้งหมดนับเฉพาะเรื่องที่ Safety อนุมัติและดำเนินการจนจบแล้ว · '
+    +'โบนัสส่วน PSIF: ครบ PSIF (Con) ≥2 = +5% · ครบ Near miss ≥2 = +2.5% · ครบ PSIF (Behavior) ≥2 = +2.5% (สูงสุด 10% เมื่อรวมกับ KPI งานอื่น 95% = 105%)',XS.note);
+  rows.push(note); merges.push(`A${rows.length}:${LAST}${rows.length}`); hts[rows.length]=32;
+  return {name:'รายคน',rows,merges,hts,freeze:{x:4,y:9},filter:`A9:${LAST}${lastData}`,
+    cols:[6,13,26,15,9,8,9,8,9,8,12,26,11,14,12,16,13]};
+}
+
+/* ---- ชีต 2: สรุปตามประเภท + แยกตามหน่วยงาน ---- */
+function xSheetSummary(arr,o){
+  const N=9, LAST=colRef(N-1), rows=[], merges=[], hts={};
+  const title=xrow(N,XS.title); xput(title,0,`สรุปภาพรวม — ${o.head1.replace('รายงาน PSIF รายคน — ','')}`,XS.title);
+  rows.push(title); merges.push(`A1:${LAST}1`); hts[1]=34;
+  const sub=xrow(N,XS.sub); xput(sub,0,o.head3,XS.sub); rows.push(sub); merges.push(`A2:${LAST}2`);
+  rows.push(xrow(N,XS.def));
+  // ตาราง 1 — ตามประเภท
+  const s1=xrow(N,XS.sec); xput(s1,0,'① ภาพรวมตามประเภท (เป้า 2 เรื่อง/คน/ปี ต่อประเภท)',XS.sec);
+  rows.push(s1); merges.push(`A${rows.length}:${LAST}${rows.length}`);
+  const H1=['ประเภท','เป้า/คน','จำนวนคน','เป้ารวม (เรื่อง)','ทำได้ (อนุมัติ+จบ)','ขาดรวม (เรื่อง)','คนที่ครบ','คนที่ยังขาด','% คนที่ครบ'];
+  rows.push(H1.map(h=>({v:h,s:XS.head}))); hts[rows.length]=30;
+  CAT_KEYS.forEach((k,i)=>{
+    const got=arr.reduce((s,p)=>s+(p.cats[k]||0),0), lack=arr.reduce((s,p)=>s+p.lack[k],0);
+    const okc=arr.filter(p=>p.lack[k]===0).length, b=i%2, num=b?XS.numB:XS.num;
+    rows.push([{v:catLabel(k),s:b?XS.boldB:XS.bold},{v:CAT_TARGET,s:num},{v:arr.length,s:num},{v:CAT_TARGET*arr.length,s:num},
+      {v:got,s:num},{v:lack,s:lack>0?XS.bad:XS.good},{v:okc,s:XS.good},{v:arr.length-okc,s:arr.length-okc>0?XS.bad:XS.num},
+      {v:arr.length?okc/arr.length:0,s:b?XS.pctB:XS.pct}]);
+  });
+  const gotAll=arr.reduce((s,p)=>s+p.done,0), lackAll=arr.reduce((s,p)=>s+p.left,0), okAll=arr.filter(p=>p.left===0).length;
+  rows.push([{v:'รวมทุกประเภท',s:XS.totL},{v:PERSON_TARGET,s:XS.tot},{v:arr.length,s:XS.tot},{v:PERSON_TARGET*arr.length,s:XS.tot},
+    {v:gotAll,s:XS.tot},{v:lackAll,s:XS.tot},{v:okAll,s:XS.tot},{v:arr.length-okAll,s:XS.tot},
+    {v:arr.length?okAll/arr.length:0,s:XS.tot}]);
+  rows.push(xrow(N,XS.def));
+  // ตาราง 2 — ตามหน่วยงาน/VSM
+  const s2=xrow(N,XS.sec); xput(s2,0,'② แยกตามหน่วยงาน / VSM — กลุ่มไหนต้องเร่ง',XS.sec);
+  rows.push(s2); merges.push(`A${rows.length}:${LAST}${rows.length}`);
+  const H2=['หน่วยงาน / VSM','จำนวนคน','ครบเป้า (คน)','ยังไม่ครบ (คน)',...CAT_KEYS.map(k=>`ขาด ${catLabel(k)}`),'ขาดรวม (เรื่อง)','% คนที่ครบ'];
+  rows.push(H2.map(h=>({v:h,s:XS.head}))); hts[rows.length]=30;
+  const gmap={};
+  arr.forEach(p=>{ const d=deptKey(p.vsm); const g=(gmap[d]??={n:0,ok:0,left:0,lack:newCatMap()});
+    g.n++; if(p.left===0)g.ok++; g.left+=p.left; CAT_KEYS.forEach(k=>{ g.lack[k]+=p.lack[k]; }); });
+  Object.keys(gmap).sort((a,b)=>gmap[b].left-gmap[a].left||a.localeCompare(b,'th')).forEach((d,i)=>{
+    const g=gmap[d], b=i%2, num=b?XS.numB:XS.num;
+    rows.push([{v:d,s:b?XS.boldB:XS.bold},{v:g.n,s:num},{v:g.ok,s:XS.good},{v:g.n-g.ok,s:g.n-g.ok>0?XS.bad:XS.num},
+      ...CAT_KEYS.map(k=>({v:g.lack[k],s:g.lack[k]>0?XS.bad:num})),
+      {v:g.left,s:g.left>0?XS.bad:XS.good},{v:g.n?g.ok/g.n:0,s:b?XS.pctB:XS.pct}]);
+  });
+  rows.push([{v:'รวมทุกหน่วยงาน',s:XS.totL},{v:arr.length,s:XS.tot},{v:okAll,s:XS.tot},{v:arr.length-okAll,s:XS.tot},
+    ...CAT_KEYS.map(k=>({v:arr.reduce((s,p)=>s+p.lack[k],0),s:XS.tot})),
+    {v:lackAll,s:XS.tot},{v:arr.length?okAll/arr.length:0,s:XS.tot}]);
+  return {name:'สรุปตามประเภท',rows,merges,hts,cols:[28,11,14,15,17,16,19,16,13]};
+}
+
+/* ---- ชีต 3: คนที่ยังไม่ครบ (ไว้ตามงาน) ---- */
+function xSheetFollow(arr,o){
+  const N=10, LAST=colRef(N-1), rows=[], merges=[], hts={};
+  const late=arr.filter(p=>p.left>0).slice().sort((a,b)=>b.left-a.left||deptKey(a.vsm).localeCompare(deptKey(b.vsm),'th'));
+  const t=xrow(N,XS.title); xput(t,0,`ต้องตามงาน — ${o.scope} (ปี ${o.y})`,XS.title); rows.push(t); merges.push(`A1:${LAST}1`); hts[1]=34;
+  const s=xrow(N,XS.sub); xput(s,0,`${late.length.toLocaleString()} คนที่ยังส่งไม่ครบเป้า · เรียงจากขาดมาก → น้อย · ${o.head3}`,XS.sub);
+  rows.push(s); merges.push(`A2:${LAST}2`);
+  rows.push(xrow(N,XS.def));
+  const H=['ลำดับ','รหัสพนักงาน','ชื่อ - นามสกุล','หน่วยงาน / VSM',...CAT_KEYS.map(k=>`ขาด ${catLabel(k)}`),'ขาดรวม (เรื่อง)','ส่งทั้งหมด','ผ่านเกณฑ์'];
+  rows.push(H.map(h=>({v:h,s:XS.head}))); hts[4]=30;
+  late.forEach((p,i)=>{ const b=i%2, num=b?XS.numB:XS.num;
+    rows.push([{v:i+1,s:num},{v:p.id||'',s:num},{v:p.name||'',s:b?XS.boldB:XS.bold},{v:deptKey(p.vsm),s:b?XS.txtB:XS.txt},
+      ...CAT_KEYS.map(k=>({v:p.lack[k],s:p.lack[k]>0?XS.bad:num})),
+      {v:p.left,s:XS.bad},{v:p.submitted,s:num},{v:p.done,s:num}]);
+  });
+  if(!late.length){ const e=xrow(N,XS.good); xput(e,0,'ครบเป้าทุกคนแล้ว 🎉',XS.good); rows.push(e); merges.push(`A5:${LAST}5`); }
+  return {name:'ต้องตามงาน',rows,merges,hts,freeze:{y:4},filter:late.length?`A4:${LAST}${rows.length}`:'',
+    cols:[6,13,26,16,17,16,19,15,12,12]};
 }
 
 /* ---------------- CSV export (req #14) ---------------- */
