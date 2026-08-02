@@ -646,7 +646,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.7';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.8';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -850,6 +850,30 @@ async function delMaster(table,id){
   if(online()) await api('/'+table+'/'+encodeURIComponent(id),{method:'DELETE'});
   state[table]=state[table].filter(x=>x.id!==id); demoSave();
 }
+/* ย้ายข้อมูล PSIF ทั้งหมดจากรหัสหนึ่งไปอีกรหัสหนึ่ง (2026-08-02)
+   mode 'rename' = เปลี่ยนรหัสพนักงาน — ย้ายข้อมูลเดิม + แจ้งเตือน แล้ว "ลบรหัสเก่า" ออก
+   mode 'resign' = พนักงานลาออก — ย้ายข้อมูลไปรวมที่ "ช่องว่าง" ของแผนก แล้วปิดใช้งานรหัสเดิม */
+async function transferEmployee(from,to,mode,extra={}){
+  if(online()){
+    const d=await api('/employees/transfer',{body:{from,to,mode,...extra}});
+    await bootstrap();                       // โหลดพนักงาน + รายการใหม่ทั้งชุด
+    return d;
+  }
+  // ---- โหมดทดลอง/ออฟไลน์ ----
+  const up=s=>String(s||'').toUpperCase();
+  const src=state.employees.find(e=>up(e.id)===up(from)); if(!src) throw new Error('ไม่พบรหัสพนักงานเดิม '+from);
+  let dst=state.employees.find(e=>up(e.id)===up(to));
+  if(!dst){ dst={id:to,name:extra.to_name||src.name,vsm:extra.to_vsm??(src.vsm||''),role:mode==='resign'?'user':(src.role||'user'),active:1}; state.employees.push(dst); }
+  let moved=0;
+  state.items.forEach(i=>{ if(up(i.reporter_id)===up(from)){ i.reporter_id=dst.id; i.reporter_name=dst.name; i.vsm=i.vsm||dst.vsm||''; moved++; } });
+  if(mode==='rename'){
+    state.items.forEach(i=>{ if(up(i.done_by)===up(from))i.done_by=dst.id; if(up(i.safety_by)===up(from))i.safety_by=dst.id; });
+    (state.notifications||[]).forEach(n=>{ if(up(n.employee_id)===up(from))n.employee_id=dst.id; if(up(n.by_id)===up(from))n.by_id=dst.id; });
+    state.employees=state.employees.filter(e=>up(e.id)!==up(from));
+  } else { src.active=0; }
+  demoSave();
+  return {moved,to:dst.id,employee:dst};
+}
 async function setTarget(year,n){
   if(online()) await api('/targets',{body:{year,per_person_target:n}});
   const t=state.targets.find(x=>x.year==year); if(t)t.per_person_target=n; else state.targets.push({year,per_person_target:n}); demoSave();
@@ -861,6 +885,36 @@ async function addIssuance(vsm,year){
 }
 function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
 function empVsm(id){ const e=state.employees.find(x=>x.id===id); return e?(e.vsm||''):''; }
+
+/* ====================================================================
+ *  "ช่องว่าง" ข้อมูลพนักงานลาออก (2026-08-02) — 1 คน / 1 แผนก
+ *  เมื่อพนักงานลาออก ข้อมูล PSIF ทั้งหมดของเขาจะถูกย้ายมารวมที่รหัสนี้
+ *  เพื่อไม่ให้ข้อมูลหาย และ Target/คน ของแผนกยังคงที่ (ช่องว่างไม่นับเป็นหัวคน)
+ * ==================================================================== */
+const BUCKET_PREFIX='RESIGNED-';
+function isBucketId(id){ return new RegExp('^'+BUCKET_PREFIX,'i').test(String(id||'')); }
+function bucketIdFor(vsm){
+  const v=String(vsm||'').trim().toUpperCase().replace(/[^A-Z0-9ก-๙]+/g,'-').replace(/^-|-$/g,'');
+  return BUCKET_PREFIX+(v||'GENERAL');
+}
+function bucketNameFor(vsm){ return `ช่องว่าง — ข้อมูลพนักงานลาออก (${String(vsm||'').trim()||'ไม่ระบุแผนก'})`; }
+function bucketOf(vsm){ const id=bucketIdFor(vsm); return state.employees.find(e=>(e.id||'').toUpperCase()===id); }
+/* แผนกทั้งหมดที่มีพนักงานจริง (ไม่รวมช่องว่าง) — ใช้สร้าง/ตรวจช่องว่างให้ครบทุกแผนก */
+function allDepts(){
+  return [...new Set(state.employees.filter(e=>!isBucketId(e.id)).map(e=>(e.vsm||'').trim()).filter(Boolean))].sort();
+}
+
+/* ---- วันที่สำหรับหน้าติดตาม (2026-08-02) ----
+   เวลาที่เก็บใน DB เป็น UTC ('YYYY-MM-DD HH:MM:SS') — แปลงเป็นเวลาไทย (+7) ก่อนแสดง
+   เพื่อไม่ให้เรื่องที่บันทึกช่วงเช้ามืดเลื่อนไปเป็นวันก่อนหน้า */
+const TH_OFFSET_MS=7*3600*1000;
+function fmtDay(s){
+  const m=String(s||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if(!m) return '';
+  const d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0))+TH_OFFSET_MS);
+  const p=n=>String(n).padStart(2,'0');
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
+}
 
 /* ====================================================================
  *  NOTIFICATIONS — แจ้งเตือนผู้รายงานเมื่อมีการดำเนินการกับเรื่องของเขา
@@ -992,7 +1046,8 @@ async function bootApp(){
   try{ await bootstrap(); }
   catch(e){ toast('เชื่อมต่อ API ไม่ได้: '+e.message,'red'); demoLoad(); }
   const saved = LS.get('psif_user',null);
-  if(saved && state.employees.find(e=>e.id===saved.id)){ CURRENT_USER=saved; enterApp(); }
+  const emp = saved && state.employees.find(e=>e.id===saved.id);
+  if(emp && emp.active!==0 && !isBucketId(emp.id)){ CURRENT_USER=saved; enterApp(); }
 }
 async function doLogin(){
   const raw=$('lockInput').value.trim();
@@ -1003,6 +1058,9 @@ async function doLogin(){
   const emp = state.employees.find(e=>(e.id||'').toUpperCase()===v)   // ตรงเป๊ะก่อน
            || state.employees.find(e=>bareCode(e.id)===b);            // แล้วค่อยยอมรับขีด/ช่องว่างต่างกัน (G260 = G-260)
   if(!emp){ $('lockErr').textContent='ไม่พบรหัสพนักงานนี้ (ลองใส่ขีด เช่น G-260)'; return; }
+  // ช่องว่างข้อมูลพนักงานลาออก = ที่เก็บข้อมูล ไม่ใช่คน — เข้าใช้งานไม่ได้
+  if(isBucketId(emp.id)){ $('lockErr').textContent='รหัสนี้เป็น “ช่องว่าง” สำหรับรวมข้อมูลพนักงานที่ลาออก เข้าใช้งานไม่ได้'; return; }
+  if(emp.active===0){ $('lockErr').textContent='รหัสนี้ถูกปิดใช้งานแล้ว (พนักงานลาออก) — ติดต่อผู้ดูแลระบบ'; return; }
   CURRENT_USER={id:emp.id,name:emp.name,vsm:emp.vsm||'',role:emp.role||'user'};
   LS.set('psif_user',CURRENT_USER);
   enterApp();
@@ -1349,9 +1407,21 @@ function baThumbs(it){
     : `<div class="ba"><div class="none">ยังไม่มีรูป${cap}</div></div>`;
   return `<div class="ba-thumbs">${cell(before,'b','ก่อน')}${cell(after,'a','หลัง')}</div>`;
 }
+/* วันที่บนการ์ดหน้าติดตาม (2026-08-02 ตามคำขอ):
+   บันทึกเข้าระบบ → วันที่เข้า · เสร็จ → วันที่เสร็จ · Safety/กำลังดำเนินการ/ไม่เข้าข่าย/ซ้ำ → ไม่แสดง */
+function itemDate(it){
+  const st=stageOf(it);
+  if(st==='recorded'){ const d=fmtDay(it.created_at); return d?{ic:'📅',lbl:'เข้า',d,cls:'b-blue'}:null; }
+  if(st==='done'){ const d=fmtDay(it.done_at||it.updated_at||it.created_at); return d?{ic:'🏁',lbl:'เสร็จ',d,cls:'b-green'}:null; }
+  return null;
+}
+function dateBadge(it){
+  const o=itemDate(it); if(!o) return '';
+  return `<span class="badge ${o.cls}">${o.ic} ${o.lbl} ${o.d}</span>`;
+}
 function cardHtml(it){
   return `<div class="item" onclick="openItem(${it.id})">
-    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}</div>
+    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}${dateBadge(it)}</div>
     <div class="tt" style="margin-top:7px">${esc(it.title)}</div>
     <div class="mt">
       <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
@@ -1400,6 +1470,8 @@ function openItem(id){
     ${renderStepper(it)}
     <h3 style="margin:12px 0 6px">${esc(it.title)}</h3>
     <div class="kv"><span class="k">No.PSIF</span><span>${esc(it.no||'—')}</span></div>
+    <div class="kv"><span class="k">วันที่บันทึกเข้าระบบ</span><span>${fmtDay(it.created_at)||'—'}</span></div>
+    ${it.status==='done'?`<div class="kv"><span class="k">วันที่เสร็จ</span><span>${fmtDay(it.done_at||it.updated_at)||'—'}</span></div>`:''}
     <div class="kv"><span class="k">ผู้รายงาน</span><span>${esc(it.reporter_name||'')} (${esc(it.reporter_id)})</span></div>
     <div class="kv"><span class="k">หน่วยงาน</span><span>${esc(it.vsm||'-')}</span></div>
     <div class="kv"><span class="k">ประเภท</span><span>${esc(catLabel(it.category))}</span></div>
@@ -1560,8 +1632,9 @@ const CAT_TARGET=2;
 const CAT_KEYS=['PSIF','Near miss','Behavior'];
 function newCatMap(){ return {PSIF:0,'Near miss':0,Behavior:0}; }
 /* พนักงานที่มองเห็นตามสิทธิ์ (ข้อ 3): Admin แผนก เห็นเฉพาะแผนกตัวเอง — คนอื่นเห็นทั้งหมด */
+/* ไม่รวม "ช่องว่าง" ข้อมูลพนักงานลาออก — เป็นที่เก็บข้อมูล ไม่ใช่หัวคน (Target/คน จึงคงที่) */
 function visibleEmployees(){
-  const base=state.employees.filter(e=>e.active!==0);
+  const base=state.employees.filter(e=>e.active!==0 && !isBucketId(e.id));
   return isDeptAdmin()? base.filter(e=>(e.vsm||'').trim()===myVsm()) : base;
 }
 function computePerson(y){
@@ -1574,7 +1647,7 @@ function computePerson(y){
     // ข้อ 4: done / cats (ใช้คิดเป้า+โบนัส) นับเฉพาะ Safety อนุมัติ + จบงาน เท่านั้น
     if(isCounted(r)){ m.done++; if(m.cats[r.category]!=null) m.cats[r.category]++; }
   });
-  return {target,people:Object.values(map).map(m=>{m.missing=Math.max(0,target-m.done);m.bonus=bonusFromCats(m.cats);return m;}).sort((a,b)=>b.bonus-a.bonus||b.submitted-a.submitted||b.done-a.done)};
+  return {target,people:Object.values(map).map(m=>{m.isBucket=isBucketId(m.id);m.missing=Math.max(0,target-m.done);m.bonus=bonusFromCats(m.cats);return m;}).sort((a,b)=>b.bonus-a.bonus||b.submitted-a.submitted||b.done-a.done)};
 }
 
 /* ====================================================================
@@ -1835,7 +1908,8 @@ function teamPeople(){
   const key=d=>(d||'').trim()||'(ไม่ระบุ)';
   const group=people.filter(p=>key(p.vsm)===teamDept);
   // เหลือ = ยังขาดอีกกี่เรื่องจึงครบเป้าทุกประเภท (นับตามประเภท 2/2/2 — ส่งเกินประเภทหนึ่งไม่ชดเชยอีกประเภท)
-  group.forEach(p=>{ p.left=CAT_KEYS.reduce((s,k)=>s+Math.max(0,CAT_TARGET-(p.cats[k]||0)),0); });
+  // ช่องว่าง (ข้อมูลพนักงานลาออก) ไม่มีเป้า — ตั้ง "เหลือ" = 0 และไม่นับรวมในสรุปจำนวนคน
+  group.forEach(p=>{ p.left=p.isBucket?0:CAT_KEYS.reduce((s,k)=>s+Math.max(0,CAT_TARGET-(p.cats[k]||0)),0); });
   const q=norm(teamQ);
   let arr=q? group.filter(p=>norm((p.name||'')+' '+(p.id||'')).includes(q)) : group.slice();
   const by={
@@ -1848,6 +1922,17 @@ function teamPeople(){
   return {group,arr};
 }
 function personRow(p){
+  // ช่องว่าง: แสดงเป็นกล่องรวมข้อมูลพนักงานลาออก ไม่มีเป้า/ความคืบหน้า
+  if(p.isBucket){
+    const cats=CAT_KEYS.map(k=>`<span class="pcat">${CAT_SHORT[k]} ${p.cats[k]||0}</span>`).join('');
+    return `<div class="prow">
+      <div class="prow-h">
+        <div class="prow-nm"><b>${esc(p.name)}</b> <span class="sub">${esc(p.id)}${p.showVsm&&p.vsm?' · '+esc(p.vsm):''}</span></div>
+        <span class="badge b-gray">📦 ข้อมูลพนักงานลาออก</span>
+      </div>
+      <div class="prow-meta"><span>ส่ง <b>${p.submitted}</b></span><span>ผ่านเกณฑ์ <b>${p.done}</b></span>${cats}</div>
+    </div>`;
+  }
   const got=PERSON_TARGET-p.left;
   const pct=Math.round(got/PERSON_TARGET*100);
   const ok=p.left===0;
@@ -1885,11 +1970,14 @@ function openTeam(dept){
 function teamGo(p){ teamPage=p; renderTeamList(); const m=document.querySelector('.modal'); if(m)m.scrollTo({top:0,behavior:'smooth'}); }
 function renderTeamList(){
   const {group,arr}=teamPeople();
-  const okN=group.filter(p=>p.left===0).length;
+  const real=group.filter(p=>!p.isBucket);                 // ช่องว่างไม่นับเป็นหัวคน
+  const okN=real.filter(p=>p.left===0).length;
+  const bkt=group.filter(p=>p.isBucket).reduce((s,p)=>s+p.submitted,0);
   $('teamSum').innerHTML=`<div class="team-sum">
-    <span class="badge b-blue">ทั้งหมด ${group.length} คน</span>
+    <span class="badge b-blue">ทั้งหมด ${real.length} คน</span>
     <span class="badge b-green">✓ ครบเป้า ${okN} คน</span>
-    <span class="badge b-orange">ยังไม่ครบ ${group.length-okN} คน</span>
+    <span class="badge b-orange">ยังไม่ครบ ${real.length-okN} คน</span>
+    ${bkt?`<span class="badge b-gray">📦 ข้อมูลพนักงานลาออก ${bkt} เรื่อง</span>`:''}
   </div>`;
   const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(teamPage>pages)teamPage=pages; if(teamPage<1)teamPage=1;
   const page=arr.slice((teamPage-1)*PAGE_SIZE, teamPage*PAGE_SIZE);
@@ -1905,8 +1993,14 @@ let empSearch='';
 function empRows(){                                  // ตารางพนักงาน + ค้นหา (req #6)
   const q=norm(empSearch);
   const list=q? state.employees.filter(e=>norm((e.name||'')+' '+(e.id||'')+' '+(e.vsm||'')).includes(q)) : state.employees;
-  return list.map(e=>`<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${esc(roleLabel(e.role||'user'))}</td>
-    <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`).join('')
+  const nItems=id=>state.items.filter(i=>i.reporter_id===id).length;
+  return list.map(e=>{
+    const bkt=isBucketId(e.id), out=e.active===0;
+    const tag=bkt? `<span class="badge b-gray">📦 ช่องว่าง · ${nItems(e.id)} เรื่อง</span>`
+            : out? `<span class="badge b-orange">ลาออก</span>` : esc(roleLabel(e.role||'user'));
+    return `<tr><td>${esc(e.id)}</td><td>${esc(e.name)}</td><td>${esc(e.vsm||'')}</td><td>${tag}</td>
+      <td><button class="btn btn-line btn-sm" onclick="editEmp('${esc(e.id)}')">✏️</button></td></tr>`;
+  }).join('')
     || `<tr><td colspan="5" class="empty">ไม่พบพนักงานที่ค้นหา “${esc(empSearch)}”</td></tr>`;
 }
 function updateEmpRows(){ const el=$('empRows'); if(el) el.innerHTML=empRows(); }
@@ -1961,7 +2055,7 @@ function renderSettings(){
       <input class="inp" id="tgtN" type="number" value="${targetFor(y)}" style="width:90px">
       <button class="btn btn-blue btn-sm" onclick="saveTarget()">บันทึก</button></div>
     </div>
-    <div class="card"><h3>👥 พนักงาน (${state.employees.length})</h3>
+    <div class="card"><h3>👥 พนักงาน (${state.employees.filter(e=>!isBucketId(e.id)&&e.active!==0).length} คน)</h3>
       <button class="btn btn-blue btn-sm" onclick="editEmp()">➕ เพิ่ม/แก้ไข</button>
       <input class="inp" id="empSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(empSearch)}" oninput="empSearch=this.value;updateEmpRows()" style="margin:8px 0">
       <div class="scroll-x" style="max-height:280px;overflow-y:auto"><table class="tbl">
@@ -1969,6 +2063,7 @@ function renderSettings(){
         <tbody id="empRows">${empRows()}</tbody>
       </table></div>
     </div>
+    ${bucketCardHtml()}
     <div class="card"><h3>📍 พื้นที่/เครื่องจักร (${state.areas.length})</h3>
       <button class="btn btn-blue btn-sm" onclick="editArea()">➕ เพิ่ม</button>
       <div style="margin-top:8px">${state.areas.map(a=>`<div class="kv"><span class="k">${esc(a.vsm||'')}</span><span style="flex:1">${esc(a.name)}</span>
@@ -1984,19 +2079,128 @@ async function doIssue(){ const v=$('issVsm').value; await addIssuance(v,yr()); 
 async function saveTarget(){ await setTarget(+$('tgtYear').value,+$('tgtN').value||6); toast('บันทึกเป้าหมายแล้ว','green'); }
 function editEmp(id){
   const e=id?state.employees.find(x=>x.id===id):{id:'',name:'',vsm:'',role:'user'};
+  if(id&&!e){ toast('ไม่พบพนักงาน','red'); return; }
+  const bkt=id&&isBucketId(e.id);
+  // ปุ่มจัดการรหัส (เฉพาะพนักงานจริง): เปลี่ยนรหัส · แจ้งลาออก → ย้ายข้อมูลไปช่องว่างของแผนก
+  const tools=(id&&!bkt)?`<div class="note" style="margin-top:14px">จัดการรหัสพนักงาน — ข้อมูล PSIF เดิมจะถูกย้ายตามให้อัตโนมัติ ไม่มีข้อมูลหาย</div>
+    <div class="row" style="gap:8px;margin-top:6px">
+      <button class="btn btn-line btn-sm btn-block" data-i="${esc(e.id)}" onclick="openChangeCode(this.dataset.i)">🔁 เปลี่ยนรหัสพนักงาน</button>
+      <button class="btn btn-line btn-sm btn-block" style="color:var(--orange)" data-i="${esc(e.id)}" onclick="confirmResign(this.dataset.i)">🚪 พนักงานลาออก</button>
+    </div>`:'';
+  const bktNote=bkt?`<div class="warn">รหัสนี้คือ <b>ช่องว่างข้อมูลพนักงานลาออก</b> ของแผนก ${esc(e.vsm||'-')} — เก็บข้อมูล ${state.items.filter(i=>i.reporter_id===e.id).length} เรื่อง · เข้าใช้งานไม่ได้ และไม่ถูกนับเป็นหัวคนในเป้าหมาย</div>`:'';
   openModal(id?'แก้ไขพนักงาน':'เพิ่มพนักงาน',`
+    ${bktNote}
     <label class="fl">รหัสพนักงาน</label><input class="inp" id="eId" value="${esc(e.id)}" ${id?'readonly style="background:var(--blue-light)"':''}>
     <label class="fl">ชื่อ-สกุล</label><input class="inp" id="eName" value="${esc(e.name)}">
     <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="eVsm" value="${esc(e.vsm||'')}">
     <label class="fl">สิทธิ์</label><select class="inp" id="eRole">
       ${['user','teamleader','manager','dept_admin','safety','admin'].map(r=>`<option value="${r}" ${e.role===r?'selected':''}>${roleLabel(r)}${r==='user'?'':' ('+r+')'}</option>`).join('')}</select>
     <div class="sub" style="margin-top:4px">Team Leader/Manager เห็นรายคนในกลุ่มตัวเอง · <b>Admin แผนก</b> ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ตามช่องหน่วยงาน/VSM ด้านบน) เข้าตั้งค่าไม่ได้ · <b>Super Admin</b> ทุกแผนก + ตั้งค่า</div>
-    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>`);
+    <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>
+    ${tools}`);
 }
 async function saveEmp(){
   const id=$('eId').value.trim().toUpperCase(); if(!id||!$('eName').value.trim()){toast('กรอกรหัสและชื่อ','red');return;}
   await upsertMaster('employees',{id,name:$('eName').value.trim(),vsm:$('eVsm').value.trim(),role:$('eRole').value,active:1});
   toast('บันทึกแล้ว','green'); closeModal(); renderSettings();
+}
+
+/* ====================================================================
+ *  ช่องว่างข้อมูลพนักงานลาออก + เปลี่ยนรหัสพนักงาน (2026-08-02)
+ * ==================================================================== */
+function bucketCardHtml(){
+  const depts=allDepts();
+  const cnt=id=>state.items.filter(i=>i.reporter_id===id).length;
+  const rows=depts.map(d=>{
+    const b=bucketOf(d);
+    return `<div class="kv"><span class="k">${esc(d)}</span>
+      <span style="flex:1">${b?`${esc(b.id)} · <b>${cnt(b.id)}</b> เรื่อง`:'<span style="color:var(--orange)">ยังไม่มีช่องว่าง</span>'}</span>
+      ${b?'<span class="badge b-green">พร้อมใช้</span>'
+         :`<button class="btn btn-line btn-sm" data-d="${esc(d)}" onclick="makeBucket(this.dataset.d)">➕ สร้าง</button>`}</div>`;
+  }).join('');
+  const missing=depts.filter(d=>!bucketOf(d)).length;
+  return `<div class="card"><h3>📦 ช่องว่างข้อมูลพนักงานลาออก (1 คน / 1 แผนก)</h3>
+    <div class="sub" style="margin-bottom:8px">พนักงานลาออก → กด ✏️ ที่รายชื่อพนักงาน แล้วเลือก “พนักงานลาออก” ระบบจะย้ายข้อมูล PSIF ทั้งหมดของคนนั้นมารวมไว้ที่ช่องว่างของแผนก ข้อมูลจึงไม่หายไปจากรายงาน · ช่องว่าง<b>ไม่ถูกนับเป็นหัวคน</b> Target/คน ของแผนกจึงคงที่</div>
+    ${rows||'<div class="sub">ยังไม่มีแผนกในระบบ</div>'}
+    ${missing?`<button class="btn btn-blue btn-sm" style="margin-top:8px" onclick="makeAllBuckets()">➕ สร้างช่องว่างให้ครบทุกแผนก (${missing} แผนก)</button>`:''}
+  </div>`;
+}
+async function makeBucket(vsm){
+  const v=String(vsm||'').trim(); if(!v){toast('ไม่ทราบแผนก','red');return;}
+  if(bucketOf(v)){ toast('แผนกนี้มีช่องว่างแล้ว','orange'); return; }
+  await upsertMaster('employees',{id:bucketIdFor(v),name:bucketNameFor(v),vsm:v,role:'user',active:1});
+  toast('สร้างช่องว่างของ '+v+' แล้ว','green'); renderSettings();
+}
+async function makeAllBuckets(){
+  const todo=allDepts().filter(d=>!bucketOf(d));
+  if(!todo.length){ toast('มีครบทุกแผนกแล้ว','green'); return; }
+  for(const d of todo) await upsertMaster('employees',{id:bucketIdFor(d),name:bucketNameFor(d),vsm:d,role:'user',active:1});
+  toast(`สร้างช่องว่าง ${todo.length} แผนกแล้ว`,'green'); renderSettings();
+}
+/* ---- พนักงานลาออก: ย้ายข้อมูลทั้งหมดไปช่องว่างของแผนก ---- */
+function confirmResign(id){
+  const e=state.employees.find(x=>x.id===id); if(!e)return;
+  if(isBucketId(e.id)){ toast('รายการนี้เป็นช่องว่างอยู่แล้ว','orange'); return; }
+  if(CURRENT_USER&&CURRENT_USER.id===e.id){ toast('ทำกับบัญชีที่กำลังใช้งานอยู่ไม่ได้','red'); return; }
+  const vsm=(e.vsm||'').trim();
+  const n=state.items.filter(i=>i.reporter_id===e.id).length;
+  const bid=bucketIdFor(vsm), b=bucketOf(vsm);
+  openModal('🚪 พนักงานลาออก — ย้ายข้อมูลไปช่องว่าง',`
+    <div class="warn">ข้อมูล PSIF <b>${n}</b> เรื่อง ของ <b>${esc(e.name)}</b> (${esc(e.id)}) จะถูกย้ายไปรวมที่ช่องว่างของแผนก <b>${esc(vsm||'ไม่ระบุแผนก')}</b><br>
+      รหัสช่องว่าง: <b>${esc(bid)}</b>${b?'':' <span style="opacity:.8">(ยังไม่มี — ระบบจะสร้างให้อัตโนมัติ)</span>'}</div>
+    <div class="note">หลังย้าย: รหัส <b>${esc(e.id)}</b> จะถูกปิดใช้งาน (เข้าระบบไม่ได้ · ไม่ถูกนับเป็นหัวคนในเป้าหมาย) แต่ข้อมูลเดิมยังอยู่ครบในระบบที่ช่องว่าง</div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn btn-line btn-block" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-orange btn-block" data-i="${esc(e.id)}" onclick="doResign(this.dataset.i)">ยืนยันย้ายข้อมูล</button></div>`);
+}
+async function doResign(id){
+  const e=state.employees.find(x=>x.id===id); if(!e)return;
+  const vsm=(e.vsm||'').trim();
+  try{
+    const d=await transferEmployee(e.id,bucketIdFor(vsm),'resign',{to_name:bucketNameFor(vsm),to_vsm:vsm});
+    toast(`ย้ายข้อมูล ${(d.moved||0).toLocaleString()} เรื่องไปช่องว่างแล้ว`,'green');
+    closeModal(); refreshAll(); renderSettings();
+  }catch(err){ toast('ย้ายข้อมูลไม่สำเร็จ: '+err.message,'red'); }
+}
+/* ---- เปลี่ยนรหัสพนักงาน: ข้อมูลเดิมย้ายตามไปรหัสใหม่ แล้วลบรหัสเก่าออก ---- */
+function openChangeCode(id){
+  const e=state.employees.find(x=>x.id===id); if(!e)return;
+  if(isBucketId(e.id)){ toast('เปลี่ยนรหัสช่องว่างไม่ได้','orange'); return; }
+  const n=state.items.filter(i=>i.reporter_id===e.id).length;
+  openModal('🔁 เปลี่ยนรหัสพนักงาน',`
+    <div class="note">ใช้เมื่อพนักงาน<b>คนเดิม</b>ได้รหัสใหม่ — ข้อมูล PSIF เดิมทั้งหมดจะย้ายไปอยู่กับรหัสใหม่ และ<b>รหัสเก่าจะถูกลบออก</b> ข้อมูลใหม่หลังจากนี้จะอยู่ที่รหัสใหม่ทั้งหมด</div>
+    <div class="kv"><span class="k">รหัสเดิม</span><span>${esc(e.id)} · ${esc(e.name)} · <b>${n}</b> เรื่อง</span></div>
+    <label class="fl">รหัสใหม่ <span class="req">*</span></label><input class="inp" id="ccNew" placeholder="เช่น T-815">
+    <label class="fl">ชื่อ-สกุล</label><input class="inp" id="ccName" value="${esc(e.name)}">
+    <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="ccVsm" value="${esc(e.vsm||'')}">
+    <button class="btn btn-blue btn-block" style="margin-top:14px" data-i="${esc(e.id)}" onclick="doChangeCode(this.dataset.i)">ย้ายข้อมูล & เปลี่ยนรหัส</button>`);
+}
+async function doChangeCode(oldId){
+  const e=state.employees.find(x=>x.id===oldId); if(!e)return;
+  const to=$('ccNew').value.trim().toUpperCase();
+  const name=$('ccName').value.trim()||e.name;
+  const vsm=$('ccVsm').value.trim();
+  if(!to){ toast('กรอกรหัสใหม่','red'); return; }
+  if(to===String(oldId).toUpperCase()){ toast('รหัสใหม่ซ้ำกับรหัสเดิม','red'); return; }
+  if(isBucketId(to)){ toast('ห้ามใช้รหัสช่องว่างเป็นรหัสพนักงาน','red'); return; }
+  const dup=state.employees.find(x=>(x.id||'').toUpperCase()===to);
+  const n=state.items.filter(i=>i.reporter_id===oldId).length;
+  if(!confirm(`ย้ายข้อมูล ${n} เรื่อง จากรหัส ${oldId} ไปยัง ${to}\nแล้วลบรหัสเดิม ${oldId} ออกจากระบบ`
+    +(dup?`\n\n⚠️ รหัส ${to} มีอยู่แล้ว (${dup.name}) — ข้อมูลจะถูกรวมเข้าด้วยกัน`:'')+`\n\nยืนยัน?`)) return;
+  try{
+    const d=await transferEmployee(oldId,to,'rename',{to_name:name,to_vsm:vsm});
+    // เปลี่ยนรหัสของตัวเอง → อัปเดต session ทันที ไม่งั้นคำขอถัดไปจะไม่รู้จักตัวตน (X-Emp-Id เดิมถูกลบแล้ว)
+    if(CURRENT_USER && CURRENT_USER.id===oldId){
+      const role=(d&&d.employee&&d.employee.role)||CURRENT_USER.role;   // รหัสปลายทางที่มีอยู่แล้วอาจมีสิทธิ์ต่างจากเดิม
+      CURRENT_USER={...CURRENT_USER,id:to,name,vsm,role};
+      LS.set('psif_user',CURRENT_USER);
+      const roleTxt=(CURRENT_USER.role&&CURRENT_USER.role!=='user')?' · '+roleLabel(CURRENT_USER.role):'';
+      $('who').innerHTML=esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+esc(roleTxt);
+      renderNav();
+    }
+    toast(`เปลี่ยนรหัสเป็น ${to} แล้ว — ย้ายข้อมูล ${(d.moved||0).toLocaleString()} เรื่อง`,'green');
+    closeModal(); refreshAll(); renderSettings();
+  }catch(err){ toast('เปลี่ยนรหัสไม่สำเร็จ: '+err.message,'red'); }
 }
 function editArea(id){
   const a=id?state.areas.find(x=>x.id===id):{id:'',name:'',vsm:''};
@@ -2381,7 +2585,11 @@ function exportTeamXlsx(dept,y){
   else if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Safety / Super Admin','orange'); return; }
 
   const {people}=computePerson(y);
-  const arr=dept? people.filter(p=>deptKey(p.vsm)===dept) : people.slice();
+  const inScope=dept? people.filter(p=>deptKey(p.vsm)===dept) : people.slice();
+  // ช่องว่าง (ข้อมูลพนักงานลาออก) ไม่ใช่คนที่ต้องตามงาน → แยกออกจากรายงานรายคน แต่บอกจำนวนเรื่องไว้ในหัวรายงาน
+  const buckets=inScope.filter(p=>p.isBucket);
+  const arr=inScope.filter(p=>!p.isBucket);
+  const bucketSub=buckets.reduce((s,p)=>s+p.submitted,0), bucketDone=buckets.reduce((s,p)=>s+p.done,0);
   if(!arr.length){ toast('ไม่มีพนักงานในกลุ่มนี้','orange'); return; }
   // ขาดรายประเภท (ส่งเกินประเภทหนึ่งไม่ชดเชยอีกประเภท) — ตรรกะเดียวกับ "เหลือ" บนหน้าจอ
   arr.forEach(p=>{ p.lack={}; CAT_KEYS.forEach(k=>{ p.lack[k]=Math.max(0,CAT_TARGET-(p.cats[k]||0)); });
@@ -2393,7 +2601,8 @@ function exportTeamXlsx(dept,y){
   const lackTotal=arr.reduce((s,p)=>s+p.left,0);
   const who=CURRENT_USER?`${CURRENT_USER.name} (${CURRENT_USER.id})`:'-';
   const head1=`รายงาน PSIF รายคน — ${scope} (ปี ${y})`;
-  const head2=`เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/คน/ปี (รวม ${PERSON_TARGET} เรื่อง) · “ขาด” = ยังต้องส่งอีกกี่เรื่องจึงครบประเภทนั้น · นับเฉพาะเรื่องที่ Safety อนุมัติ + จบงานแล้ว`;
+  const head2=`เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/คน/ปี (รวม ${PERSON_TARGET} เรื่อง) · “ขาด” = ยังต้องส่งอีกกี่เรื่องจึงครบประเภทนั้น · นับเฉพาะเรื่องที่ Safety อนุมัติ + จบงานแล้ว`
+    +(bucketSub?` · ไม่รวมช่องว่างข้อมูลพนักงานลาออก ${bucketSub.toLocaleString()} เรื่อง (ผ่านเกณฑ์ ${bucketDone.toLocaleString()})`:'');
   const head3=`ออกรายงานโดย ${who} · ${xNowTxt()} · TENNECO Chonburi Plant`;
 
   xlsxBook(`PSIF_รายคน_${scope}_${y}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\/:*?"<>|]/g,'-'),

@@ -84,10 +84,13 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '1.7', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '1.8', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
-        case 'employees': return await crudRoute(env, request, seg, 'employees');
+        case 'employees':
+          // ย้ายข้อมูล PSIF ระหว่างรหัสพนักงาน (เปลี่ยนรหัส / ลาออก) — ต้องมาก่อน CRUD ปกติ
+          if (seg[1] === 'transfer') return await empTransferRoute(env, request);
+          return await crudRoute(env, request, seg, 'employees');
         case 'areas':     return await crudRoute(env, request, seg, 'areas');
         case 'categories':return await crudRoute(env, request, seg, 'categories');
         case 'targets':   return await targetsRoute(env, request);
@@ -490,6 +493,57 @@ async function crudRoute(env, request, seg, table) {
     return ok({ deleted: id });
   }
   return err('method not allowed', 405);
+}
+
+/* ---------------- ย้ายข้อมูล PSIF ระหว่างรหัสพนักงาน (2026-08-02) ----------------
+ *  POST /employees/transfer  { from, to, mode:'rename'|'resign', to_name?, to_vsm? }
+ *  rename = พนักงานคนเดิมเปลี่ยนรหัส  → ย้ายทุกอย่าง (รายการ/ผู้ปิดงาน/ผู้ตรวจ/แจ้งเตือน) แล้ว "ลบรหัสเก่า"
+ *  resign = พนักงานลาออก             → ย้ายรายการไป "ช่องว่าง" ของแผนก แล้วปิดใช้งานรหัสเดิม (active=0)
+ *  ทั้งสองแบบ = Super Admin เท่านั้น (ข้อมูลหลัก) */
+async function empTransferRoute(env, request) {
+  if (request.method !== 'POST') return err('method not allowed', 405);
+  const b = await request.json();
+  const deny = await requireSuperAdmin(env, request, b);
+  if (deny) return deny;
+
+  const from = String(b.from || '').trim();
+  const to   = String(b.to   || '').trim();
+  const mode = b.mode === 'resign' ? 'resign' : 'rename';
+  if (!from || !to) return err('ต้องระบุรหัสเดิม (from) และรหัสปลายทาง (to)');
+  if (from.toUpperCase() === to.toUpperCase()) return err('รหัสเดิมกับรหัสปลายทางซ้ำกัน');
+
+  const src = await env.DB.prepare('SELECT * FROM employees WHERE id=? COLLATE NOCASE').bind(from).first();
+  if (!src) return err('ไม่พบรหัสพนักงานเดิม: ' + from, 404);
+
+  let dst = await env.DB.prepare('SELECT * FROM employees WHERE id=? COLLATE NOCASE').bind(to).first();
+  if (!dst) {   // ปลายทางยังไม่มี → สร้างให้ (ช่องว่างของแผนก หรือ รหัสใหม่ของคนเดิม)
+    await env.DB.prepare('INSERT INTO employees (id,name,vsm,role,active) VALUES (?,?,?,?,1)')
+      .bind(to,
+            b.to_name || (mode === 'resign' ? to : src.name),
+            b.to_vsm != null ? b.to_vsm : (src.vsm || ''),
+            mode === 'resign' ? 'user' : (src.role || 'user')).run();
+    dst = await env.DB.prepare('SELECT * FROM employees WHERE id=?').bind(to).first();
+  }
+  const name = dst.name || src.name || '';
+
+  const r = await env.DB.prepare(
+    'UPDATE psif SET reporter_id=?, reporter_name=?, updated_at=? WHERE reporter_id=? COLLATE NOCASE'
+  ).bind(dst.id, name, nowISO(), from).run();
+  const moved = (r && r.meta && r.meta.changes) || 0;
+
+  if (mode === 'rename') {
+    // คนเดิม รหัสใหม่ → ประวัติผู้ดำเนินการ/ผู้ตรวจ และการแจ้งเตือน ต้องตามไปด้วย
+    await env.DB.prepare('UPDATE psif SET done_by=?   WHERE done_by=?   COLLATE NOCASE').bind(dst.id, from).run();
+    await env.DB.prepare('UPDATE psif SET safety_by=? WHERE safety_by=? COLLATE NOCASE').bind(dst.id, from).run();
+    try {
+      await env.DB.prepare('UPDATE notifications SET employee_id=? WHERE employee_id=? COLLATE NOCASE').bind(dst.id, from).run();
+      await env.DB.prepare('UPDATE notifications SET by_id=?       WHERE by_id=?       COLLATE NOCASE').bind(dst.id, from).run();
+    } catch (_) { /* ไม่มีตาราง notifications ก็ไม่ต้องล้ม */ }
+    await env.DB.prepare('DELETE FROM employees WHERE id=? COLLATE NOCASE').bind(from).run();
+  } else {
+    await env.DB.prepare('UPDATE employees SET active=0 WHERE id=? COLLATE NOCASE').bind(from).run();
+  }
+  return ok({ from, to: dst.id, mode, moved, employee: dst });
 }
 
 /* ---------------- targets ---------------- */

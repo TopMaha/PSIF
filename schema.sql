@@ -5,6 +5,9 @@
 -- ============================================================
 
 -- ---------- master: employees ----------
+-- หมายเหตุ (v1.8): รหัสที่ขึ้นต้นด้วย 'RESIGNED-' = "ช่องว่าง" ของแผนกนั้น (1 คน/แผนก)
+--   ใช้รวมข้อมูล PSIF ของพนักงานที่ลาออก (POST /employees/transfer mode=resign)
+--   ไม่ถูกนับเป็นหัวคนในเป้าหมาย และล็อกอินไม่ได้
 CREATE TABLE IF NOT EXISTS employees (
   id        TEXT PRIMARY KEY,          -- employee code, e.g. L-1827
   name      TEXT NOT NULL,
