@@ -335,6 +335,34 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .mini-tgt .fill{display:block;height:100%;border-radius:6px;transition:width .5s;background:linear-gradient(90deg,var(--blue),var(--steel))}
 .mini-tgt .fill.ok{background:linear-gradient(90deg,#34d399,var(--green))}
 .mini-tgt .num{width:52px;text-align:right;font-weight:700;font-size:13px}
+/* 2026-08-03 (v1.9) — แถบประเภทของหน้า "ของฉัน" แบบมีสถานะระหว่างทาง
+   แถบทึบ = นับผลงานแล้ว (อนุมัติ+จบ) · แถบลาย = ส่งแล้วแต่ยังไม่นับ (รอ Safety / กำลังดำเนินการ)
+   แก้ปัญหาพนักงานสับสน "ลงไปแล้วทำไมตัวเลขไม่ขึ้น" */
+.mycat{margin:11px 0 13px}
+.mycat-h{display:flex;align-items:baseline;gap:8px}
+.mycat-h .cap{flex:1;font-weight:700;font-size:13px}
+.mycat-h .num{font-weight:800;font-size:13px;white-space:nowrap}
+.mycat .track{display:flex;height:16px;background:#F1F5F9;border-radius:6px;overflow:hidden;margin-top:5px}
+.mycat .track .f{height:100%;transition:width .5s}
+.mycat .track .f.done{background:linear-gradient(90deg,var(--blue),var(--steel))}
+.mycat .track .f.done.ok{background:linear-gradient(90deg,#34d399,var(--green))}
+.mycat .track .f.wait{background:repeating-linear-gradient(45deg,#FCE3BE 0 5px,#F7CD94 5px 10px)}
+.mycat .track .f.work{background:repeating-linear-gradient(45deg,#E4D7FB 0 5px,#CFB9F6 5px 10px)}
+.ptags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.ptag{display:inline-flex;align-items:center;gap:4px;font-family:inherit;font-size:11px;font-weight:700;
+  line-height:1.35;padding:5px 9px;border-radius:999px;border:1px solid var(--border);background:#F4F7FC;color:var(--muted)}
+button.ptag{cursor:pointer}
+.ptag.t-wait{background:var(--orange-bg);color:var(--orange);border-color:var(--orange-bd)}
+.ptag.t-work{background:var(--purple-bg);color:var(--purple);border-color:#DDD3FB}
+.ptag.t-fail{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
+.ptag.t-gain{background:var(--green-bg);color:var(--green);border-color:var(--green-bd)}
+.pipe{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 10px}
+.pipe .ptag{font-size:11.5px;padding:7px 11px}
+.stat .l2{font-size:10.5px;font-weight:700;color:var(--green);margin-top:4px;line-height:1.3}
+.pl-row{padding:10px 2px;border-bottom:1px dashed var(--border);cursor:pointer}
+.pl-row:last-child{border-bottom:0}
+.pl-row .pl-t{font-weight:600;font-size:13.5px;line-height:1.35;margin-top:5px}
+.pl-row .pl-m{display:flex;gap:9px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:3px}
 /* การ์ดอธิบายโบนัส 2 ส่วน (95% KPI อื่น + ส่วน PSIF) */
 .bonus-wrap{background:linear-gradient(180deg,#FFFBEB,#fff);border:1px solid var(--orange-bd);border-radius:12px;padding:12px;margin-top:12px}
 .bonus-eq{display:flex;align-items:stretch;justify-content:center;gap:6px;flex-wrap:wrap;margin:10px 0 6px}
@@ -646,7 +674,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.8';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='1.9';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -695,8 +723,9 @@ const BONUS_RULE_TXT='💡 โบนัสรวม = <b>KPI งานอื่�
  +'เงื่อนไขส่วน PSIF (บวกอิสระแต่ละประเภท ไม่ต้องผ่าน Con ก่อน): ครบ PSIF(Con) ≥2 ได้ <b>+5%</b> · ครบ Near miss ≥2 <b>+2.5%</b> · ครบ PSIF(Behavior) ≥2 <b>+2.5%</b> — สูงสุด 10%<br>'
  +'⚖️ นับเฉพาะเรื่องที่ <b>Safety อนุมัติ</b> และ <b>ดำเนินการจนจบ</b> เท่านั้น';
 
-/* การ์ดอธิบายโบนัสรายคน — ตอบคำถาม "ทำครบแล้วทำไมขึ้น 10% ไม่ใช่ 100%?" ด้วยภาพ + ตาราง 4 ขั้น */
-function bonusExplainHtml(cats){
+/* การ์ดอธิบายโบนัสรายคน — ตอบคำถาม "ทำครบแล้วทำไมขึ้น 10% ไม่ใช่ 100%?" ด้วยภาพ + ตาราง 4 ขั้น
+   pend (v1.9, ไม่บังคับ) = {wait,work} จำนวนเรื่องค้างรายประเภท → บอกว่า "ถ้าผ่านครบจะได้เท่าไร" */
+function bonusExplainHtml(cats,pend){
   const b=bonusFromCats(cats);
   const con=cats['PSIF']||0, nm=cats['Near miss']||0, beh=cats['Behavior']||0;
   const total=KPI_OTHER_PCT+b;
@@ -724,6 +753,7 @@ function bonusExplainHtml(cats){
     ${chk(con>=CAT_TARGET,'PSIF (Con)',con, con>=CAT_TARGET?'+5%':'ยังไม่ได้ +5%')}
     ${chk(nm>=CAT_TARGET,'Near miss',nm, nm>=CAT_TARGET?'+2.5%':'ยังไม่ได้ +2.5%')}
     ${chk(beh>=CAT_TARGET,'PSIF (Behavior)',beh, beh>=CAT_TARGET?'+2.5%':'ยังไม่ได้ +2.5%')}
+    ${pendExplainHtml(cats,pend)}
     <table class="bonus-tbl">
       <tr><th>ผลงาน PSIF ของคุณ</th><th>ส่วน PSIF</th><th>โบนัสรวม*</th></tr>
       ${lvl(b===0,'0%','95%','ยังไม่ครบประเภทใด')}
@@ -739,9 +769,28 @@ function bonusExplainHtml(cats){
     </div>
   </div>`;
 }
+/* 2026-08-03 (v1.9): กล่อง "เรื่องที่ค้างอยู่" ในป๊อปอัพโบนัส — ตอบว่า "ถ้า Safety อนุมัติจะได้เพิ่มกี่ %"
+   pend = {wait:{cat→n}, work:{cat→n}} · คืนค่าว่างเมื่อไม่มีเรื่องค้าง */
+function pendExplainHtml(cats,pend){
+  if(!pend) return '';
+  const w=pend.wait||{}, p=pend.work||{};
+  const nW=CAT_KEYS.reduce((s,k)=>s+(w[k]||0),0), nP=CAT_KEYS.reduce((s,k)=>s+(p[k]||0),0);
+  if(!(nW+nP)) return '';
+  const pot=newCatMap(); CAT_KEYS.forEach(k=>pot[k]=(cats[k]||0)+(w[k]||0)+(p[k]||0));
+  const now=bonusFromCats(cats), max=bonusFromCats(pot);
+  const rows=CAT_KEYS.filter(k=>(w[k]||0)+(p[k]||0)>0).map(k=>
+    `<div class="bonus-chk"><span>⏳</span><span>${esc(catLabel(k))} ตอนนี้ <b>${cats[k]||0}/${CAT_TARGET}</b>
+      — ค้างอีก <b>${(w[k]||0)+(p[k]||0)}</b> เรื่อง</span>
+      <span class="pct" style="color:var(--blue)">ถ้าผ่าน → ${pot[k]}/${CAT_TARGET}</span></div>`).join('');
+  return `<div class="warn" style="margin-top:10px">⏳ <b>เรื่องที่ส่งแล้วแต่ยังไม่นับ</b>
+      ${nW?`· รอ Safety พิจารณา <b>${nW}</b> เรื่อง`:''}${nP?` · กำลังดำเนินการ <b>${nP}</b> เรื่อง`:''}<br>
+      ${max>now?`ถ้าผ่านและปิดงานครบทุกเรื่อง ส่วน PSIF ของคุณจะขยับจาก <b>${now}%</b> → <b>${max}%</b> (โบนัสรวม ${KPI_OTHER_PCT+max}%)`
+               :`ถึงผ่านครบทุกเรื่อง ส่วน PSIF ยังเท่าเดิมที่ <b>${now}%</b> — ต้องเพิ่มประเภทที่ยังไม่ครบ ${CAT_TARGET} เรื่อง`}
+    </div>${rows}`;
+}
 /* 2026-07-18: คำอธิบายโบนัสเป็น popup — แตะกล่อง "โบนัส" ในหน้า "ของฉัน" เพื่อเปิด */
-let _myBonusCats=null;
-function openBonusInfo(){ if(!_myBonusCats) return; openModal('🧮 คำอธิบายโบนัสของคุณ', bonusExplainHtml(_myBonusCats)); }
+let _myBonusCats=null, _myPendCats=null;
+function openBonusInfo(){ if(!_myBonusCats) return; openModal('🧮 คำอธิบายโบนัสของคุณ', bonusExplainHtml(_myBonusCats,_myPendCats)); }
 
 /* ---------------- toast / loading ---------------- */
 let _toastT;
@@ -1317,6 +1366,20 @@ function isRejected(it){ return REJECT_KINDS.includes(safetyKind(it)); }
 /* ข้อ 4: "นับผลงาน" (KPI/โบนัส/เป้า) เฉพาะรายการที่เข้าทั้ง 2 เงื่อนไข:
    1) Safety ตรวจสอบแล้ว = อนุมัติ  2) ดำเนินการจนจบ (done) — นอกนั้นไม่นับทุกกรณี */
 function isCounted(it){ return !!it && it.safety_result==='approved' && it.status==='done'; }
+/* 2026-08-03 (v1.9): กลุ่ม "ระหว่างทาง" ของเรื่องที่ส่งแล้ว — ทุกเรื่องอยู่กลุ่มเดียวเท่านั้น
+   counted = อนุมัติ+จบ (นับผลงาน) · wait = รอ Safety พิจารณา · work = อนุมัติแล้วกำลังดำเนินการ · fail = ไม่ผ่าน
+   ใช้บอกพนักงานว่าเรื่องที่ส่งไป "ไม่ได้หาย" แค่ยังไม่ถึงเงื่อนไขนับผลงาน */
+function pipeKind(it){
+  const k=safetyKind(it);
+  if(REJECT_KINDS.includes(k)) return 'fail';
+  if(k==='approved') return it.status==='done' ? 'counted' : 'work';
+  return 'wait';
+}
+const PIPE_INFO={
+  wait:{ic:'⏳',label:'Safety กำลังพิจารณา',cls:'t-wait'},
+  work:{ic:'🔧',label:'กำลังดำเนินการ',   cls:'t-work'},
+  fail:{ic:'✖️',label:'ไม่ผ่านการพิจารณา', cls:'t-fail'},
+};
 function stageOf(it){
   const k=safetyKind(it);
   if(REJECT_KINDS.includes(k)) return k;   // duplicate / not_cardinal / rejected
@@ -1826,27 +1889,88 @@ function renderDash(){
 }
 
 /* ของฉัน — ดูเฉพาะของตัวเอง (แทนการ์ด "ล่าสุด" เดิม) */
+let _myPipe={wait:[],work:[],fail:[]};
 function renderMyDash(y){
   const mine=state.items.filter(i=>i.reporter_id===CURRENT_USER.id&&i.year==y);
   // ข้อ 4: เป้า/โบนัสนับเฉพาะเรื่องที่ Safety อนุมัติ + จบงาน
   const counted=mine.filter(isCounted);
   const cat=newCatMap(); counted.forEach(i=>{ if(cat[i.category]!=null)cat[i.category]++; });
   const done=counted.length, bonus=bonusFromCats(cat);
+  /* v1.9: แยกเรื่องที่ส่งแล้วแต่ยังไม่นับ เป็น 3 กลุ่ม (รอ Safety / กำลังดำเนินการ / ไม่ผ่าน)
+     พนักงานเคยสับสนว่า "ลงไปแล้วทำไมตัวเลขไม่ขึ้น" — ต้องเห็นว่าค้างอยู่ขั้นไหน และถ้าผ่านจะได้กี่เรื่อง */
+  const pipe={wait:newCatMap(),work:newCatMap(),fail:newCatMap()};
+  _myPipe={wait:[],work:[],fail:[]};
+  mine.forEach(i=>{ const g=pipeKind(i); if(g==='counted') return;
+    _myPipe[g].push(i); if(pipe[g][i.category]!=null) pipe[g][i.category]++; });
+  const nWait=_myPipe.wait.length, nWork=_myPipe.work.length, nFail=_myPipe.fail.length;
+  // ถ้าเรื่องที่ยังค้าง (รอ Safety + กำลังดำเนินการ) ผ่านครบทั้งหมด จะนับได้กี่เรื่อง / โบนัสเท่าไร
+  const potCat=newCatMap(); CAT_KEYS.forEach(k=>potCat[k]=cat[k]+pipe.wait[k]+pipe.work[k]);
+  const potDone=done+nWait+nWork, potBonus=bonusFromCats(potCat);
   _myBonusCats=cat;   // ใช้ตอนแตะกล่องโบนัส → popup คำอธิบาย (openBonusInfo)
-  const catBar=k=>{ const v=cat[k],ok=v>=CAT_TARGET;
-    return `<div class="mini-tgt"><span class="cap">${esc(catLabel(k))}</span><div class="track"><div class="fill ${ok?'ok':''}" style="width:${Math.min(100,Math.round(v/CAT_TARGET*100))}%;height:100%"></div></div><span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}</span></div>`; };
+  _myPendCats={wait:pipe.wait,work:pipe.work};
+
+  const seg=n=>Math.max(0,Math.min(100,Math.round(n/CAT_TARGET*100)));
+  const catBar=k=>{
+    const v=cat[k], w=pipe.wait[k], p=pipe.work[k], f=pipe.fail[k], ok=v>=CAT_TARGET, pend=w+p;
+    const wDone=seg(v), wWork=Math.min(100-wDone,seg(p)), wWait=Math.min(100-wDone-wWork,seg(w));
+    const tag=(cls,txt)=>`<span class="ptag ${cls}">${txt}</span>`;
+    const tags=[
+      w?tag('t-wait',`⏳ รอ Safety ${w} เรื่อง`):'',
+      p?tag('t-work',`🔧 กำลังดำเนินการ ${p} เรื่อง`):'',
+      f?tag('t-fail',`✖️ ไม่ผ่าน ${f} เรื่อง`):'',
+      pend?tag('t-gain',`🎯 ถ้าผ่านครบ → ${potCat[k]}/${CAT_TARGET}${(potCat[k]>=CAT_TARGET&&!ok)?' ครบเป้า':''}`):'',
+    ].join('');
+    return `<div class="mycat">
+      <div class="mycat-h"><span class="cap">${esc(catLabel(k))}</span>
+        <span class="num" style="color:${ok?'var(--green)':'var(--muted)'}">${v}/${CAT_TARGET}${pend?` <span style="color:var(--muted2)">+${pend} รอ</span>`:''}</span></div>
+      <div class="track">
+        <div class="f done ${ok?'ok':''}" style="width:${wDone}%"></div>
+        <div class="f work" style="width:${wWork}%"></div>
+        <div class="f wait" style="width:${wWait}%"></div>
+      </div>
+      ${tags?`<div class="ptags">${tags}</div>`:''}
+    </div>`;
+  };
+  const pipeTag=(g,n)=>{ const I=PIPE_INFO[g];
+    return `<button class="ptag ${I.cls}" onclick="openMyPipe('${g}')">${I.ic} ${I.label} <b>${n}</b> เรื่อง ›</button>`; };
+  const pipeRow=(nWait||nWork||nFail)?`<div class="pipe">
+      ${nWait?pipeTag('wait',nWait):''}${nWork?pipeTag('work',nWork):''}${nFail?pipeTag('fail',nFail):''}
+    </div>`:'';
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
   $('dashBody').innerHTML=`
     <div class="card"><h3>🙋 สรุปของฉัน — ${esc(CURRENT_USER.name)} (${esc(CURRENT_USER.id)})</h3>
       <div class="grid g3" style="margin:2px 0 12px">
         <div class="stat blue"><div class="n">${mine.length}</div><div class="l">ส่งแล้ว</div></div>
-        <div class="stat green"><div class="n">${done}</div><div class="l">นับผลงาน (อนุมัติ+จบ)</div></div>
-        <div class="stat orange" onclick="openBonusInfo()" style="cursor:pointer"><div class="n">${bonus}%</div><div class="l">โบนัสส่วน PSIF — แตะดูคำอธิบาย ℹ️</div></div>
+        <div class="stat green"><div class="n">${done}</div><div class="l">นับผลงาน (อนุมัติ+จบ)</div>${potDone>done?`<div class="l2">ถ้าเรื่องที่ค้างผ่านครบ → ${potDone} เรื่อง</div>`:''}</div>
+        <div class="stat orange" onclick="openBonusInfo()" style="cursor:pointer"><div class="n">${bonus}%</div><div class="l">โบนัสส่วน PSIF — แตะดูคำอธิบาย ℹ️</div>${potBonus>bonus?`<div class="l2">ถ้าเรื่องที่ค้างผ่านครบ → ${potBonus}%</div>`:''}</div>
       </div>
-      <div class="sub" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี — นับเฉพาะเรื่องที่ Safety อนุมัติและจบงานแล้ว</div>
+      ${pipeRow}
+      <div class="sub tlg" style="margin-bottom:8px">🎯 เป้าหมาย ${CAT_TARGET} เรื่อง/ประเภท/ปี — <b>นับเฉพาะเรื่องที่ Safety อนุมัติและจบงานแล้ว</b><br>
+        เรื่องที่ส่งแล้วแต่ยังไม่นับจะแสดงเป็น<b>แถบลาย</b>ในกราฟ (<i class="sw" style="background:repeating-linear-gradient(45deg,#E4D7FB 0 4px,#CFB9F6 4px 8px)"></i> กำลังดำเนินการ ·
+        <i class="sw" style="background:repeating-linear-gradient(45deg,#FCE3BE 0 4px,#F7CD94 4px 8px)"></i> รอ Safety) — <b>ไม่หาย</b> แค่ยังไม่ครบเงื่อนไข</div>
       ${CAT_KEYS.map(catBar).join('')}
     </div>
     <div class="card"><h3>📄 เรื่องของฉัน (${mine.length})</h3>${listHtml}</div>`;
+}
+/* รายการเรื่องค้างของฉันตามกลุ่ม — แตะชิปบนหน้า "ของฉัน" (v1.9) */
+function openMyPipe(g){
+  const I=PIPE_INFO[g]; if(!I) return;
+  const arr=_myPipe[g]||[];
+  const note={
+    wait:'เรื่องเหล่านี้เข้าระบบแล้ว กำลังรอเจ้าหน้าที่ Safety พิจารณา — <b>ยังไม่ถูกนับผลงาน</b> จนกว่าจะอนุมัติและดำเนินการจนจบ',
+    work:'Safety <b>อนุมัติแล้ว</b> อยู่ระหว่างดำเนินการแก้ไข — จะถูกนับผลงานเมื่อ<b>ปิดงาน</b>เรียบร้อย',
+    fail:'Safety พิจารณาแล้ว<b>ไม่ผ่าน</b> (ซ้ำ / ไม่เข้าข่าย PSIF Cardinal rules / ไม่อนุมัติ) — ไม่นับเป็นผลงาน แต่ยังเก็บไว้ให้ดูย้อนหลังได้',
+  }[g]||'';
+  const rows=arr.map(it=>`<div class="pl-row" onclick="openItem(${it.id})">
+      <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center">${statusBadge(it)}
+        <span class="badge b-gray">🏷️ ${esc(catLabel(it.category))}</span>
+        ${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}</div>
+      <div class="pl-t">${esc(it.title)}</div>
+      <div class="pl-m"><span>📅 ${fmtDay(it.created_at)||'-'}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}${it.safety_note?`<span>📝 ${esc(it.safety_note)}</span>`:''}</div>
+    </div>`).join('');
+  openModal(`${I.ic} ${I.label} (${arr.length})`,
+    `<div class="note" style="margin-bottom:6px">${note}</div>`+
+    (arr.length?rows:'<div class="empty"><span class="ic">📭</span>ไม่มีรายการในกลุ่มนี้</div>'));
 }
 
 /* หน้า Manager (เมนูล่าง ต่อจาก Safety — เฉพาะ role Safety) — รายชื่อผู้จัดการทุกคน
