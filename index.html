@@ -301,6 +301,11 @@ label.fl{font-weight:600;letter-spacing:.2px}
 .dh-tile .dh-l{font-size:11px;letter-spacing:1px;opacity:.85;font-weight:600;text-transform:uppercase}
 .dh-tile .dh-n{font-family:var(--font-display);font-size:29px;font-weight:700;line-height:1.15;letter-spacing:-.5px}
 .dh-tile .dh-s{font-size:10.5px;opacity:.82;margin-top:2px}
+/* 2026-08-07 (v2.0) — ไทล์ "ส่งแล้ว" แยก 2 ชั้น: ตัวหลัก = ผ่าน Safety แล้ว (กำลังทำ+จบงาน)
+   ตัวรอง (ตัวเล็กจางๆ) = รอ Safety + ไม่ผ่าน — ไม่นับเข้า % ของเป้าหมาย */
+.dh-tile.subm{cursor:pointer}
+.dh-tile .dh-n .side{font-size:15px;font-weight:700;opacity:.62;margin-left:5px;letter-spacing:0}
+.dh-tile .dh-x{font-size:10px;opacity:.7;margin-top:3px;line-height:1.5}
 .dh-progress{height:10px;background:rgba(255,255,255,.18);border-radius:999px;margin-top:12px;overflow:hidden}
 .dh-progress-fill{height:100%;background:linear-gradient(90deg,#34d399,#10b981);border-radius:999px;transition:width .6s}
 .dh-progress-lbl{font-size:11px;opacity:.85;margin-top:6px;text-align:right}
@@ -674,7 +679,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='1.9';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.0';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -1833,10 +1838,17 @@ function renderDash(){
   // ข้อ 4: KPI "นับผลงาน" = Safety อนุมัติ + ดำเนินการจนจบ เท่านั้น (ไม่ใช่แค่ status done)
   const counted=items.filter(isCounted).length;
   const notPassed=(c.not_cardinal||0)+(c.duplicate||0)+(c.rejected||0);
+  /* 2026-08-07 (v2.0): ไทล์ "ส่งแล้ว" แยกเป็น 2 ชั้น เพื่อไม่ให้ยอดรวมถูกดันด้วยเรื่องที่ยังไม่ผ่านเกณฑ์
+     ตัวหลัก (subMain) = Safety อนุมัติแล้ว → กำลังทำ + จบงาน   ← ตัวเลขใหญ่ + ใช้คิด % ของเป้าหมาย
+     ตัวรอง (subSide)  = รอ Safety + ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ) ← ตัวเล็ก ไม่นับเข้าเป้าหมาย */
+  const pipeC={counted:0,work:0,wait:0,fail:0};
+  items.forEach(i=>{ pipeC[pipeKind(i)]++; });
+  const subMain=pipeC.counted+pipeC.work, subSide=pipeC.wait+pipeC.fail;
+  _dashSubm={...pipeC,main:subMain,side:subSide,total};   // ใช้ตอนแตะไทล์ → popup คำอธิบาย
   const target=targetFor(y);
   const empCount=visibleEmployees().length||1;
   const plantTarget=target*empCount;
-  const pctSub=Math.min(100,Math.round(total/plantTarget*100));       // % ที่ส่งแล้ว (ข้อมูลประกอบ)
+  const pctSub=Math.min(100,Math.round(subMain/plantTarget*100));     // % ของเป้า — นับเฉพาะตัวหลัก
   const pct=Math.min(100,Math.round(counted/plantTarget*100));        // % ผลงานที่นับจริง เทียบเป้า
 
   // ส่งรายเดือน (นับตามวันที่ส่ง — เป็นเมตริกการส่ง ไม่ใช่ KPI ผลงาน)
@@ -1860,8 +1872,11 @@ function renderDash(){
     <div class="dh-title">🏭 ${isDeptAdmin()?esc(myVsm()||'แผนกของฉัน'):'TENNECO Chonburi Plant'} · ปี ${y}</div>
     <div class="dh-tiles">
       <div class="dh-tile target"><div class="dh-l">Target</div><div class="dh-n">${plantTarget.toLocaleString()}</div><div class="dh-s">${target} เรื่อง/คน/ปี × ${empCount.toLocaleString()} คน</div></div>
-      <div class="dh-tile"><div class="dh-l">ส่งแล้ว</div><div class="dh-n">${total.toLocaleString()}</div><div class="dh-s">${pctSub}% ของเป้าหมาย</div></div>
-      <div class="dh-tile done"><div class="dh-l">นับผลงาน</div><div class="dh-n">${counted.toLocaleString()}</div><div class="dh-s">Safety อนุมัติ + จบงาน (${total?Math.round(counted/total*100):0}% ของที่ส่ง)</div></div>
+      <div class="dh-tile subm" onclick="openSubmitInfo()" title="แตะดูคำอธิบาย"><div class="dh-l">ส่งแล้ว · ผ่าน Safety ℹ️</div>
+        <div class="dh-n">${subMain.toLocaleString()}${subSide?`<span class="side">+${subSide.toLocaleString()}</span>`:''}</div>
+        <div class="dh-s">${pctSub}% ของเป้าหมาย</div>
+        ${subSide?`<div class="dh-x">+${subSide.toLocaleString()} ไม่นับเข้าเป้า — ⏳ รอ Safety ${pipeC.wait.toLocaleString()} · ✖️ ไม่ผ่าน ${pipeC.fail.toLocaleString()}</div>`:''}</div>
+      <div class="dh-tile done"><div class="dh-l">นับผลงาน</div><div class="dh-n">${counted.toLocaleString()}</div><div class="dh-s">Safety อนุมัติ + จบงาน (${subMain?Math.round(counted/subMain*100):0}% ของที่ผ่าน Safety)</div></div>
     </div>
     <div class="dh-progress"><div class="dh-progress-fill" style="width:${pct}%"></div></div>
     <div class="dh-progress-lbl">ผลงานที่นับ ${counted.toLocaleString()} / ${plantTarget.toLocaleString()} เรื่อง (เฉพาะอนุมัติ+จบงาน)</div>
@@ -1886,6 +1901,27 @@ function renderDash(){
   $('dashBody').innerHTML = dashWide
     ? hero + monthCard + `<div class="dash-grid cols2">${catCard}${statusCard}</div><div class="dash-grid cols2">${vsmCard}${deptCard}</div>`
     : hero + monthCard + catCard + statusCard + vsmCard + deptCard;
+}
+/* 2026-08-07 (v2.0): คำอธิบายไทล์ "ส่งแล้ว" — แตะที่ไทล์บนแดชบอร์ดทั้งโรงงาน
+   ตอบคำถาม "ทำไมยอดที่เห็นน้อยกว่าจำนวนเรื่องที่ส่งเข้ามาทั้งหมด" */
+let _dashSubm=null;
+function openSubmitInfo(){
+  const d=_dashSubm; if(!d) return;
+  const row=(ic,lbl,n,note)=>`<div class="bonus-chk"><span>${ic}</span><span>${lbl} <b>${n.toLocaleString()}</b> เรื่อง</span>
+    <span class="pct" style="color:var(--muted2)">${note}</span></div>`;
+  openModal('📥 ยอด "ส่งแล้ว" นับอย่างไร', `<div class="bonus-wrap">
+    <div style="font-weight:800;font-size:13.5px">ตัวเลขใหญ่ = เฉพาะเรื่องที่ผ่าน Safety แล้ว (${d.main.toLocaleString()} เรื่อง)</div>
+    <div class="sub" style="margin:6px 0 10px">เรื่องที่เข้ามาทั้งหมด ${d.total.toLocaleString()} เรื่อง — แต่<b>เป้าหมายนับเฉพาะตัวหลัก</b>
+      เพราะเรื่องที่ยังไม่ผ่าน Safety หรือไม่ผ่านการพิจารณา ยังไม่ถือเป็นผลงานของโรงงาน</div>
+    <div style="font-weight:700;font-size:12.5px;margin-bottom:2px">✅ ตัวหลัก — นับเข้าเป้าหมาย</div>
+    ${row('🔧','Safety อนุมัติ · กำลังดำเนินการ',d.work,'ยังไม่ปิดงาน')}
+    ${row('🏁','Safety อนุมัติ · จบงานแล้ว',d.counted,'นับผลงานเต็ม')}
+    <div style="font-weight:700;font-size:12.5px;margin:10px 0 2px">➖ ตัวรอง — <b>ไม่</b>นับเข้าเป้าหมาย</div>
+    ${row('⏳','รอ Safety พิจารณา',d.wait,'รอผล')}
+    ${row('✖️','ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)',d.fail,'ไม่นับ')}
+    <div class="warn" style="margin-top:10px">⏳ ถ้า Safety อนุมัติเรื่องที่รออยู่ทั้ง <b>${d.wait.toLocaleString()}</b> เรื่อง
+      ตัวหลักจะขยับเป็น <b>${(d.main+d.wait).toLocaleString()}</b> เรื่อง</div>
+  </div>`);
 }
 
 /* ของฉัน — ดูเฉพาะของตัวเอง (แทนการ์ด "ล่าสุด" เดิม) */
