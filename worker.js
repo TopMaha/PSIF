@@ -84,7 +84,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.0', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.1', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -116,21 +116,35 @@ async function importRoute(env, request) {
   const rows = Array.isArray(b.rows) ? b.rows : [];
   if (!rows.length) return err('no rows');
   const now = nowISO();
+  // 2026-08-10: ติดป้ายให้แถวที่ "นำเข้า" (request_id ขึ้นต้นด้วย import-) — ข้อมูลย้ายระบบไม่มีรูป
+  // มาแต่ต้น แอปจะได้ไม่ไปเตือนว่า "PSIF (Con) ขาดรูป" กับข้อมูลชุดนี้ (ดู isLegacyItem ใน index.html)
+  const stamp = 'import-' + Date.now().toString(36);
   let n = 0;
   for (const r of rows) {
     const title = (r.title || (r.detail || '').slice(0, 120) || '(นำเข้าข้อมูล)');
     if (!(r.detail || r.title)) continue;
-    await env.DB.prepare(
-      `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
-         status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(
+    const vals = [
       r.no || '', r.reporter_id || '', r.reporter_name || '', r.vsm || '', r.area_id || '', r.machine || '', r.category || '',
       title, r.detail || '', r.suggestion || '',
       r.status || 'recorded', r.safety_result || 'pending', r.safety_note || '', r.safety_at || '',
       r.done_detail || '', r.done_by || '', r.done_at || '',
-      +r.year || new Date().getFullYear(), r.created_at || now, now
-    ).run();
+      +r.year || new Date().getFullYear(), r.created_at || now, now,
+    ];
+    try {
+      await env.DB.prepare(
+        `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
+           status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at,request_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(...vals, `${stamp}-${n}`).run();
+    } catch (e) {
+      // ยังไม่ได้ run migration request_id → นำเข้าแบบเดิม (ยังกันด้วยวันที่/ช่วง id ฝั่งแอปอยู่)
+      if (!/no such column/i.test(String((e && e.message) || e))) throw e;
+      await env.DB.prepare(
+        `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
+           status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(...vals).run();
+    }
     n++;
   }
   return ok({ imported: n });
@@ -200,7 +214,12 @@ async function psifRoute(env, request, seg) {
     // ข้อ 1: idempotency — requestId เดิมถูกบันทึกไปแล้ว (double-click/retry) → คืน record เดิม ไม่สร้างซ้ำ
     if (reqId) {
       const dup = await findByRequestId(env, reqId);
-      if (dup) { await attachPhotos(env, [dup]); return ok({ item: dup, duplicate: true }); }
+      if (dup) {
+        // 2026-08-10: เดิมคืนแถวเดิมเฉย ๆ — ถ้ารอบก่อนบันทึกแถวสำเร็จแต่ผูกรูปไม่สำเร็จ
+        // (แล้วผู้ใช้กดบันทึกซ้ำ) แถวนั้นจะไม่มีรูปตลอดไป → ผูกรูปที่ส่งมารอบนี้ให้ครบก่อนคืน
+        await attachMissingPhotos(env, dup.id, b.photos);
+        await attachPhotos(env, [dup]); return ok({ item: dup, duplicate: true });
+      }
     }
 
     const commonBind = [
@@ -319,11 +338,21 @@ async function psifRoute(env, request, seg) {
         await notify(env, oldRow.reporter_id, +id, m, actor.id, b._by_name || actor.name || '');
       }
     }
-    if (Array.isArray(b.photos)) {
+    // 2026-08-10: แนบรูป (รวม "แนบย้อนหลัง" ของ PSIF (Con) ที่รูปขาด) —
+    // เดิมไม่เช็คสิทธิ์เลย ตอนนี้จำกัดที่ เจ้าของเรื่อง · Admin แผนกนั้น · Safety · Super Admin
+    if (Array.isArray(b.photos) && b.photos.length) {
+      if (!(superA || deptA || safeA || isReporter))
+        return err('สิทธิ์ไม่พอสำหรับแนบรูปของรายการนี้', 403);
+      let added = 0;
       for (const p of b.photos) {
         const k = p && (p.key || p.r2_key);
-        if (k && !k.startsWith('data:')) await addPhoto(env, id, p.kind || 'after', k);
+        if (!k || String(k).startsWith('data:')) continue;
+        await addPhoto(env, id, (p.kind === 'before' ? 'before' : 'after'), k);
+        added++;
       }
+      // แนบรูปอย่างเดียวโดยไม่แก้ฟิลด์อื่น ก็ถือว่ารายการถูกแก้ไข — ขยับ updated_at ให้ตรงความจริง
+      if (added && !sets.length)
+        await env.DB.prepare('UPDATE psif SET updated_at=? WHERE id=?').bind(nowISO(), id).run();
     }
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
     if (!row) return err('not found', 404);
@@ -402,6 +431,22 @@ async function notifRoute(env, request, url, seg) {
 async function addPhoto(env, psifId, kind, key) {
   await env.DB.prepare('INSERT INTO psif_photos (psif_id,kind,r2_key,uploaded_at) VALUES (?,?,?,?)')
     .bind(psifId, kind, key, nowISO()).run();
+}
+/* ผูกเฉพาะรูป "ชนิดที่ยังไม่มี" ให้แถวเดิม (2026-08-10)
+ * ใช้ตอน retry ที่ request_id ซ้ำ: ถ้ารอบก่อนผูกรูปไว้แล้วจะไม่ผูกซ้ำ ถ้ายังขาดจึงเติมให้ */
+async function attachMissingPhotos(env, psifId, photos) {
+  if (!Array.isArray(photos) || !photos.length) return 0;
+  const have = new Set(((await env.DB.prepare(
+    'SELECT DISTINCT kind FROM psif_photos WHERE psif_id=?').bind(psifId).all()).results || []).map(r => r.kind));
+  let n = 0;
+  for (const p of photos) {
+    const k = p && (p.key || p.r2_key);
+    const kind = (p && p.kind) || 'before';
+    if (!k || String(k).startsWith('data:') || have.has(kind)) continue;
+    await addPhoto(env, psifId, kind, k);
+    have.add(kind); n++;
+  }
+  return n;
 }
 async function attachPhotos(env, rows) {
   if (!rows.length) return;

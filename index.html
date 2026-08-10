@@ -133,6 +133,13 @@ textarea.inp{resize:vertical;min-height:74px}
 .chip{white-space:nowrap;padding:8px 15px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--muted);font-size:13px;font-weight:600;transition:.15s;box-shadow:var(--shadow)}
 .chip:active{transform:scale(.96)}
 .chip.on{background:linear-gradient(135deg,var(--blue),var(--navy));color:#fff;border-color:var(--blue);box-shadow:0 3px 10px rgba(29,78,216,.32)}
+/* แถวชิป "ประเภท" (2026-08-10) — เล็กกว่าชิปสถานะเล็กน้อย ให้เห็นว่าเป็นคนละชั้นของตัวกรอง */
+.cat-chips{padding-bottom:6px}
+.cat-chips .chip{padding:6px 13px;font-size:12.5px}
+.cat-chips .chip.on{background:linear-gradient(135deg,var(--amber),#B45309);border-color:var(--amber);box-shadow:0 3px 10px rgba(245,158,11,.3)}
+/* ชิป "ขาดรูป" — ของค้างที่ต้องตามเก็บ */
+.chip.warn-chip{color:var(--red);border-color:#FECACA;background:#FEF2F2}
+.chip.warn-chip.on{background:linear-gradient(135deg,var(--red),#991B1B);color:#fff;border-color:var(--red);box-shadow:0 3px 10px rgba(220,38,38,.3)}
 
 /* ---------- stepper ---------- */
 .stepper{display:flex;align-items:center;margin:6px 0}
@@ -562,6 +569,8 @@ button.ptag{cursor:pointer}
       </div>
       <div id="listScopeBar"></div>
       <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="listPage=1;renderList()" style="margin-bottom:8px">
+      <!-- ตัวกรองประเภท (2026-08-10): PSIF (Con) · Near miss · PSIF (Behavior) -->
+      <div class="chips cat-chips" id="listCatChips"></div>
       <div class="chips" id="listChips"></div>
       <div id="listBody"></div>
     </div>
@@ -611,6 +620,8 @@ button.ptag{cursor:pointer}
     <div class="wrap">
       <h2 style="font-size:18px;margin-bottom:8px">🛡️ Safety ตรวจสอบ</h2>
       <div class="note" id="safetyNote"></div>
+      <!-- ตัวกรองประเภท (2026-08-10) — ชุดเดียวกับหน้าติดตาม -->
+      <div class="chips cat-chips" id="safetyCatChips"></div>
       <div class="chips" id="safetyChips"></div>
       <div id="safetyBody"></div>
     </div>
@@ -679,7 +690,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.0';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.1';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -700,6 +711,8 @@ const FIXED_CATS = [
 ];
 /* map a stored category value -> display label (tolerant of old/new strings) */
 function catLabel(v){ const c=FIXED_CATS.find(x=>x.key===v||x.name===v); return c?c.name:(v||'-'); }
+/* ค่าที่เก็บใน DB ของประเภทหนึ่ง ๆ (ยอมรับทั้ง key เดิมและชื่อที่แสดง) — ใช้ตอนกรอง */
+function catKeyOf(v){ const c=FIXED_CATS.find(x=>x.key===v||x.name===v); return c?c.key:String(v||''); }
 
 const STATUS = {
   recorded:  {label:'บันทึกเข้าระบบ', cls:'b-blue'},
@@ -1326,6 +1339,20 @@ function confirmDupe(dupes){
  * ==================================================================== */
 let listFilter='all';
 let listScope='mine'; // user: 'mine' เท่านั้น · admin/safety: 'mine' | 'all' | ชื่อแผนก
+let listCat='all';    // ตัวกรองประเภท (2026-08-10): 'all' | 'PSIF' | 'Near miss' | 'Behavior'
+let safetyCat='all';  // ตัวกรองประเภทของหน้า Safety
+/* แถบชิปเลือกประเภท — ใช้ร่วมกันทั้งหน้าติดตามและหน้า Safety
+   นับจำนวนจาก "รายการที่จะได้เห็นถ้ากดชิปนี้" (ผ่านตัวกรองอื่นแล้ว) ตัวเลขจึงตรงกับที่แสดงจริง */
+function catChipsHtml(items,cur,fn){
+  const chips=[['all','🏷️ ทุกประเภท'],...FIXED_CATS.map(c=>[c.key,c.name])];
+  return chips.map(([k,l])=>{
+    const n=k==='all'?items.length:items.filter(i=>catKeyOf(i.category)===k).length;
+    return `<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k.replace(/'/g,"\\'")}')">${l} (${n})</button>`;
+  }).join('');
+}
+function setListCat(k){ listCat=k; listPage=1; renderList(); }
+function setSafetyCat(k){ safetyCat=k; safetyPage=1; renderSafety(); }
+function matchCat(it,cat){ return cat==='all' || catKeyOf(it.category)===cat; }
 
 /* ---------------- pagination (req #4: แสดงทีละ 20 รายการ + แบ่งหน้า ลดการโหลด) ---------------- */
 const PAGE_SIZE=20;
@@ -1371,6 +1398,39 @@ function isRejected(it){ return REJECT_KINDS.includes(safetyKind(it)); }
 /* ข้อ 4: "นับผลงาน" (KPI/โบนัส/เป้า) เฉพาะรายการที่เข้าทั้ง 2 เงื่อนไข:
    1) Safety ตรวจสอบแล้ว = อนุมัติ  2) ดำเนินการจนจบ (done) — นอกนั้นไม่นับทุกกรณี */
 function isCounted(it){ return !!it && it.safety_result==='approved' && it.status==='done'; }
+/* ====================================================================
+ *  รูป "ก่อน / หลังแก้ไข" ของ PSIF (Con) — บังคับครบทั้งคู่ (2026-08-10, v2.1)
+ *  ข้อมูลที่ย้ายมาจากระบบเดิม (นำเข้าจาก Excel) ไม่เคยมีรูปมาแต่ต้น → ไม่นับ ไม่เตือน
+ *  เกณฑ์ "ข้อมูลเก่า" (แก้ที่เดียว 2 ค่านี้ถ้าต้องเลื่อนเส้นแบ่ง):
+ *    · id ไม่เกิน LEGACY_MAX_ID  = ชุดนำเข้าจาก 123456.xlsx (1,690 แถว, id สูงสุด 1702)
+ *    · หรือบันทึกก่อน PHOTO_RULE_SINCE = วันที่แอปเริ่มบังคับแนบรูป (v1.0) —
+ *      ก่อนหน้านั้นไม่มีใครถูกบังคับให้แนบ จึงไม่ถือว่าผิด
+ * ==================================================================== */
+const LEGACY_MAX_ID=1702;
+const PHOTO_RULE_SINCE='2026-07-16';
+function isLegacyItem(it){
+  if(!it) return true;
+  if(/^import-/i.test(String(it.request_id||''))) return true;   // แถวที่นำเข้าผ่านเมนู "นำเข้าจาก Excel"
+  if(+it.id && +it.id<=LEGACY_MAX_ID) return true;
+  const d=String(it.created_at||'').slice(0,10);
+  return !d || d<PHOTO_RULE_SINCE;
+}
+/* รายการนี้อยู่ใต้กฎ "ต้องมีรูป" หรือไม่ — เฉพาะ PSIF (Con) ที่บันทึกผ่านแอป */
+function photoRuleOn(it){ return catIsCon(it&&it.category) && !isLegacyItem(it); }
+function hasPhoto(it,kind){ return ((it&&it.photos)||[]).some(p=>(p.kind||'before')===kind); }
+const PHOTO_LBL={before:'ก่อนแก้ไข',after:'หลังแก้ไข'};
+/* รูปที่ยังขาด: "ก่อนแก้ไข" ต้องมีตั้งแต่บันทึก · "หลังแก้ไข" ต้องมีเมื่อปิดงานแล้ว */
+function missingPhotos(it){
+  if(!photoRuleOn(it)) return [];
+  const m=[];
+  if(!hasPhoto(it,'before')) m.push('before');
+  if(it.status==='done' && !hasPhoto(it,'after')) m.push('after');
+  return m;
+}
+/* ต้องตามเก็บรูปย้อนหลังไหม — เรื่องที่ Safety ตีตก (ซ้ำ/ไม่เข้าข่าย) จบไปแล้ว ไม่ต้องตาม */
+function needsPhotoFix(it){ return !!it && !isRejected(it) && missingPhotos(it).length>0; }
+/* ใครแนบรูปย้อนหลังได้: เจ้าของเรื่อง · Admin แผนกนั้น · Safety · Super Admin */
+function canAddPhoto(it){ return !!it && (it.reporter_id===(CURRENT_USER&&CURRENT_USER.id) || canManage(it) || isSafety()); }
 /* 2026-08-03 (v1.9): กลุ่ม "ระหว่างทาง" ของเรื่องที่ส่งแล้ว — ทุกเรื่องอยู่กลุ่มเดียวเท่านั้น
    counted = อนุมัติ+จบ (นับผลงาน) · wait = รอ Safety พิจารณา · work = อนุมัติแล้วกำลังดำเนินการ · fail = ไม่ผ่าน
    ใช้บอกพนักงานว่าเรื่องที่ส่งไป "ไม่ได้หาย" แค่ยังไม่ถึงเงื่อนไขนับผลงาน */
@@ -1417,11 +1477,16 @@ function listBaseItems(){
   else if(listScope!=='all') base=base.filter(i=>i.vsm===listScope);
   return base;
 }
-/* รายการหลังกรองครบ (scope + สถานะ + ค้นหา) — ไม่รวมแบ่งหน้า */
-function listFilteredItems(){
+/* รายการหลังกรองครบ (scope + สถานะ + ประเภท + ค้นหา) — ไม่รวมแบ่งหน้า
+   o = ค่าแทนที่ชั่วคราว ใช้ตอนนับตัวเลขบนชิป ("ถ้ากดชิปนี้จะเห็นกี่รายการ") */
+function listFilteredItems(o={}){
+  const st = o.status!==undefined?o.status:listFilter;
+  const cat= o.cat!==undefined?o.cat:listCat;
   const q=norm($('listSearch').value);
   let arr=listBaseItems();
-  if(listFilter!=='all') arr=arr.filter(i=>stageOf(i)===listFilter);
+  if(st==='nophoto') arr=arr.filter(needsPhotoFix);          // 2026-08-10: PSIF (Con) ที่ยังขาดรูปก่อน/หลัง
+  else if(st!=='all') arr=arr.filter(i=>stageOf(i)===st);
+  if(cat!=='all') arr=arr.filter(i=>matchCat(i,cat));
   if(q) arr=arr.filter(i=>norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')).includes(q));
   return arr;
 }
@@ -1450,26 +1515,32 @@ function renderList(){
       <button class="chip ${listScope==='all'?'on':''}" onclick="listScope='all';listPage=1;renderList()">🏭 แผนกของฉัน (${esc(myVsm()||'-')})</button>
     </div>`;
   } else { scopeEl.innerHTML=''; }
-  // status chips (นับจาก base)
-  const base=listBaseItems();
+  // ตัวกรองประเภท (2026-08-10) — อยู่เหนือชิปสถานะ ใช้ร่วมกับสถานะ/ค้นหาได้
+  $('listCatChips').innerHTML=catChipsHtml(listFilteredItems({cat:'all'}),listCat,'setListCat');
+  // status chips — ตัวเลขคิดตามประเภท/คำค้นที่เลือกอยู่ จะได้ตรงกับรายการที่เห็น
   const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
+  const nFix=listFilteredItems({status:'nophoto'}).length;
+  if(nFix) chips.push(['nophoto','⚠️ ขาดรูป']);            // โชว์เฉพาะตอนมีของค้าง — ไม่มีก็ไม่ต้องรก
+  else if(listFilter==='nophoto') listFilter='all';
   $('listChips').innerHTML=chips.map(([k,l])=>{
-    const n=k==='all'?base.length:base.filter(i=>stageOf(i)===k).length;
-    return `<button class="chip ${listFilter===k?'on':''}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
+    const n=k==='nophoto'?nFix:listFilteredItems({status:k}).length;
+    return `<button class="chip ${listFilter===k?'on':''}${k==='nophoto'?' warn-chip':''}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
   }).join('');
   const arr=listFilteredItems();
   // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
   const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(listPage>pages) listPage=pages; if(listPage<1) listPage=1;
   const pageArr=arr.slice((listPage-1)*PAGE_SIZE, listPage*PAGE_SIZE);
+  const filtered = listFilter!=='all' || listCat!=='all' || !!$('listSearch').value.trim();
   $('listBody').innerHTML = arr.length? pageArr.map(cardHtml).join('')+pagerHtml(arr.length,listPage,PAGE_SIZE,'listGo') :
-    `<div class="empty"><span class="ic">📭</span>${listScope==='mine'?'คุณยังไม่มีรายการ — แตะ ✏️ เพื่อบันทึก':'ไม่มีรายการ'}</div>`;
+    `<div class="empty"><span class="ic">📭</span>${filtered?'ไม่มีรายการตามตัวกรองที่เลือก':(listScope==='mine'?'คุณยังไม่มีรายการ — แตะ ✏️ เพื่อบันทึก':'ไม่มีรายการ')}</div>`;
 }
-/* before/after thumbnails — both always visible, side by side (req #5) */
+/* before/after thumbnails — both always visible, side by side (req #5)
+   PSIF (Con) ที่อยู่ใต้กฎรูป: โชว์กรอบว่างไว้เสมอ เพื่อให้เห็นทันทีว่ารูปยังขาด */
 function baThumbs(it){
   const ph=it.photos||[];
   const before=ph.filter(p=>p.kind==='before');
   const after =ph.filter(p=>p.kind==='after');
-  if(!before.length && !after.length) return '';
+  if(!before.length && !after.length && !photoRuleOn(it)) return '';
   const cell=(arr,cls,cap)=> arr.length
     ? `<div class="ba"><img src="${photoSrc(arr[0])}" loading="lazy"><span class="cap ${cls}">${cap}</span>${arr.length>1?`<span class="cap pc">+${arr.length-1}</span>`:''}</div>`
     : `<div class="ba"><div class="none">ยังไม่มีรูป${cap}</div></div>`;
@@ -1487,9 +1558,15 @@ function dateBadge(it){
   const o=itemDate(it); if(!o) return '';
   return `<span class="badge ${o.cls}">${o.ic} ${o.lbl} ${o.d}</span>`;
 }
+/* ป้าย "ขาดรูป" บนการ์ด — บอกว่าขาดรูปไหน (ก่อน/หลัง) เพื่อให้ไล่เก็บย้อนหลังได้ */
+function photoGapBadge(it){
+  const m=needsPhotoFix(it)?missingPhotos(it):[];
+  if(!m.length) return '';
+  return `<span class="badge b-red">📷 ขาดรูป${m.map(k=>PHOTO_LBL[k]).join(' + ')}</span>`;
+}
 function cardHtml(it){
   return `<div class="item" onclick="openItem(${it.id})">
-    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}${dateBadge(it)}</div>
+    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}${dateBadge(it)}${photoGapBadge(it)}</div>
     <div class="tt" style="margin-top:7px">${esc(it.title)}</div>
     <div class="mt">
       <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
@@ -1550,18 +1627,76 @@ function openItem(id){
     ${it.safety_note?`<div class="kv"><span class="k">หมายเหตุ Safety</span><span>${esc(it.safety_note)}</span></div>`:''}
     ${it.done_detail?`<div class="kv"><span class="k">สรุปการแก้ไข</span><span>${esc(it.done_detail)}</span></div>`:''}
     <h4 style="margin:16px 0 6px">📷 เปรียบเทียบก่อน / หลังแก้ไข</h4>
+    ${photoGapNote(it)}
     <div class="ba-compare">
       <div class="col">
         <div class="hd b">📷 ก่อนแก้ไข</div>
         ${before.length?before.map(p=>`<img src="${photoSrc(p)}">`).join(''):'<div class="none">— ไม่มีรูป —</div>'}
+        ${addPhotoBtn(it,'before')}
       </div>
       <div class="col">
         <div class="hd a">✅ หลังแก้ไข</div>
         ${after.length?after.map(p=>`<img src="${photoSrc(p)}">`).join(''):'<div class="none">— ยังไม่มีรูป —</div>'}
+        ${addPhotoBtn(it,'after')}
       </div>
     </div>
     <div style="margin-top:16px">${actions}</div>
   `);
+}
+/* ---- แนบรูปย้อนหลัง (2026-08-10): รายการ PSIF (Con) ที่หลุดเข้าระบบมาโดยไม่มีรูป ----
+   ปิดงานไม่ถูกบล็อก (รูป "ก่อนแก้ไข" ย้อนหลังบางทีก็หาไม่ได้แล้ว) แต่ระบบจะเตือนจนกว่าจะแนบครบ */
+function photoGapNote(it){
+  const m=needsPhotoFix(it)?missingPhotos(it):[];
+  if(!m.length) return '';
+  return `<div class="warn">⚠️ ประเภท PSIF (Con) ต้องมีรูปทั้ง <b>ก่อนแก้ไข</b> และ <b>หลังแก้ไข</b> —
+    รายการนี้ยังขาด <b>รูป${m.map(k=>PHOTO_LBL[k]).join(' และ รูป')}</b>
+    ${canAddPhoto(it)?'· แตะปุ่มใต้ช่องที่ขาดเพื่อแนบย้อนหลัง':'· โปรดแจ้งผู้รายงานหรือ Admin แผนกให้แนบเพิ่ม'}</div>`;
+}
+function addPhotoBtn(it,kind){
+  if(!needsPhotoFix(it) || !missingPhotos(it).includes(kind) || !canAddPhoto(it)) return '';
+  return `<button class="btn btn-line btn-sm" style="margin-top:8px;width:100%" onclick="openAddPhoto(${it.id},'${kind}')">📷 แนบรูป${PHOTO_LBL[kind]}ย้อนหลัง</button>`;
+}
+let addPhotoCtx=null;   // {id,kind,file}
+function openAddPhoto(id,kind){
+  const it=state.items.find(x=>x.id==id); if(!it) return;
+  if(!canAddPhoto(it)){ toast('ไม่มีสิทธิ์แนบรูปของรายการนี้','red'); return; }
+  addPhotoCtx={id,kind,file:null};
+  openModal(`📷 แนบรูป${PHOTO_LBL[kind]} (ย้อนหลัง)`, `
+    <div class="note" style="margin-bottom:8px">รายการ <b>${esc(it.no||it.title||'')}</b><br>
+      ${kind==='before'
+        ?'ใช้รูปที่ถ่ายไว้ <b>ตอนก่อนแก้ไข</b> เท่านั้น (เช่นในคลังรูปมือถือ/แชท) — ถ้าไม่มีจริง ๆ ให้ระบุเหตุผลไว้ในสรุปการแก้ไข'
+        :'ใช้รูป <b>หลังแก้ไขเสร็จ</b> ของจุดเดียวกับรูปก่อนแก้ไข'}</div>
+    <div class="dropzone" id="apZone" onclick="triggerPhoto('apPhotoInput',false)">📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ</div>
+    <div class="row" style="margin-top:8px">
+      <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('apPhotoInput',true)">📷 ถ่ายรูป</button>
+      <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('apPhotoInput',false)">🖼️ เลือกจากมือถือ</button>
+    </div>
+    <input type="file" id="apPhotoInput" accept="image/*" class="hidden" onchange="onAddPhotoPick(this)">
+    <button class="btn btn-blue btn-block" id="apSaveBtn" style="margin-top:14px" onclick="doAddPhoto()">💾 บันทึกรูป</button>`);
+}
+async function onAddPhotoPick(input){
+  const f=input.files[0]; if(!f||!addPhotoCtx) return;
+  try{
+    const {dataURL}=await resizeImage(f); addPhotoCtx.file=f;
+    const z=$('apZone'); z.classList.add('has');
+    z.innerHTML=`<img src="${dataURL}" style="max-height:150px;border-radius:8px"><div class="sub">แตะเพื่อเปลี่ยนรูป</div>`;
+  }catch(e){ toast('อ่านรูปไม่ได้','red'); }
+}
+let _addPhotoBusy=false;
+async function doAddPhoto(){
+  if(_addPhotoBusy || !addPhotoCtx) return;
+  if(!addPhotoCtx.file){ toast('เลือกรูปก่อน','red'); return; }
+  _addPhotoBusy=true;
+  const btn=$('apSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ กำลังอัปโหลด...'; }
+  const {id,kind,file}=addPhotoCtx;
+  try{
+    const ph=await uploadPhoto(file,kind,id);
+    await patchPsif(id,{},[ph]);
+    addPhotoCtx=null; closeModal();
+    toast(`✅ แนบรูป${PHOTO_LBL[kind]}แล้ว`,'green');
+    refreshAll(); openItem(id);
+  }catch(e){ toast('แนบรูปไม่สำเร็จ: '+e.message,'red'); }
+  finally{ _addPhotoBusy=false; const b=$('apSaveBtn'); if(b){ b.disabled=false; b.textContent='💾 บันทึกรูป'; } }
 }
 async function safetyAct(id,result){
   let note='';
@@ -1614,7 +1749,11 @@ function openClose(id){
       <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',false)">🖼️ เลือกจากมือถือ</button>
     </div>
     <input type="file" id="closePhotoInput" accept="image/*" class="hidden" onchange="onClosePhoto(this)">`:'';
+  // เตือนตอนปิดงานถ้ารูป "ก่อนแก้ไข" หายไป (ไม่บล็อก — ย้อนไปถ่ายใหม่ไม่ได้แล้ว แต่ต้องรู้ว่ายังขาด)
+  const beforeGap = closeNeedsPhoto && !hasPhoto(it,'before') && !isLegacyItem(it)
+    ? `<div class="warn">⚠️ รายการนี้ยังไม่มี<b>รูปก่อนแก้ไข</b> — ถ้ามีรูปเก็บไว้ในมือถือ กรุณาแนบย้อนหลังที่หน้ารายละเอียด (ปุ่ม “แนบรูปก่อนแก้ไขย้อนหลัง”) เพื่อให้เอกสารครบ</div>`:'';
   openModal('🏁 ปิดงาน', `
+    ${beforeGap}
     <label class="fl">สรุปการแก้ไข</label>
     <textarea class="inp" id="closeDetail" placeholder="อธิบายสิ่งที่แก้ไข"></textarea>
     ${photoPart}
@@ -1664,9 +1803,12 @@ async function saveEditItem(id){
   const noRaw=$('edNo').value.trim(); let noVal='';
   if(noRaw){ const chk=validatePsifNo(noRaw); if(!chk.ok){toast(chk.msg,'red');return;} noVal=chk.value; }
   try{
-    await patchPsif(id,{title,no:noVal,category:$('edCat').value,detail:$('edDetail').value.trim(),
+    const upd=await patchPsif(id,{title,no:noVal,category:$('edCat').value,detail:$('edDetail').value.trim(),
       suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()});
-    toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green'); closeModal(); refreshAll();
+    closeModal(); refreshAll();
+    // เปลี่ยนประเภทมาเป็น PSIF (Con) แล้วรูปไม่ครบ — เตือนทันที (กฎรูปผูกกับประเภท)
+    if(needsPhotoFix(upd)) toast('✅ แก้ไขแล้ว — แต่ PSIF (Con) ยังขาดรูป กรุณาแนบย้อนหลังในหน้ารายละเอียด','orange');
+    else toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green');
   }catch(e){ toast('แก้ไขไม่สำเร็จ: '+e.message,'red'); }
 }
 
@@ -1674,16 +1816,26 @@ async function saveEditItem(id){
  *  SAFETY pane
  * ==================================================================== */
 let safetyFilter='recorded';
+/* รายการของหน้า Safety หลังกรอง (สถานะ + ประเภท) — o = ค่าแทนที่ชั่วคราวสำหรับนับตัวเลขบนชิป */
+function safetyItems(o={}){
+  const st = o.status!==undefined?o.status:safetyFilter;
+  const cat= o.cat!==undefined?o.cat:safetyCat;
+  let arr = st==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>safetyKind(i)===st);
+  if(cat!=='all') arr=arr.filter(i=>matchCat(i,cat));
+  return arr;
+}
 function renderSafety(){
   $('safetyNote').innerHTML = isSafety()
     ? 'ตรวจสอบเนื้อหา + ความซ้ำซ้อนก่อนอนุมัติ ระบบจะเตือนหากพบเรื่อง/เครื่องจักรที่คล้ายกัน'
     : '⚠️ เฉพาะเจ้าหน้าที่ Safety/Admin จึงจะอนุมัติได้ (คุณดูได้อย่างเดียว)';
+  // ตัวกรองประเภท (2026-08-10) — นับเฉพาะในสถานะที่เลือกอยู่
+  $('safetyCatChips').innerHTML=catChipsHtml(safetyItems({cat:'all'}),safetyCat,'setSafetyCat');
   const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('safetyChips').innerHTML=chips.map(([k,l])=>{
-    const n=k==='recorded'?state.items.filter(i=>i.status==='recorded').length:state.items.filter(i=>safetyKind(i)===k).length;
+    const n=safetyItems({status:k}).length;
     return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';safetyPage=1;renderSafety()">${l} (${n})</button>`;
   }).join('');
-  let arr = safetyFilter==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>safetyKind(i)===safetyFilter);
+  let arr = safetyItems();
   // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
   const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(safetyPage>pages) safetyPage=pages; if(safetyPage<1) safetyPage=1;
   const pageArr=arr.slice((safetyPage-1)*PAGE_SIZE, safetyPage*PAGE_SIZE);
@@ -2709,7 +2861,7 @@ function exportReportXlsx(){
   const sfLabel=it=>{ const k=safetyKind(it); return k==='pending'?'รอตรวจ':SAFETY_KIND[k].label; };
   const head=['ID','No.PSIF','วันที่บันทึก','ปี','รหัสผู้รายงาน','ชื่อผู้รายงาน','หน่วยงาน/แผนก','พื้นที่/สถานที่','เครื่องจักร/จุด',
     'ประเภท','หัวข้อ','รายละเอียด','ข้อเสนอแนะ','สถานะ','สถานะ (ระบบ)','ผล Safety','ผล Safety (ระบบ)','หมายเหตุ Safety',
-    'ผู้ตรวจ Safety','วันที่ตรวจ','สรุปการแก้ไข','ผู้ปิดงาน','วันที่ปิดงาน','นับผลงาน (อนุมัติ+จบ)','รูปก่อน','รูปหลัง','แก้ไขล่าสุด'];
+    'ผู้ตรวจ Safety','วันที่ตรวจ','สรุปการแก้ไข','ผู้ปิดงาน','วันที่ปิดงาน','นับผลงาน (อนุมัติ+จบ)','รูปก่อน','รูปหลัง','ขาดรูป (ต้องแนบย้อนหลัง)','แก้ไขล่าสุด'];
   const rows=[head,...arr.map(i=>{
     const ph=i.photos||[];
     // ข้อมูลนำเข้าจาก Excel เก่ามี "สถานที่/เครื่องจักร" รวมช่องเดียว (เก็บใน machine) — ถ้าไม่มีพื้นที่ให้ใช้ค่านั้นแทน เพื่อไม่ให้คอลัมน์พื้นที่ว่าง
@@ -2717,7 +2869,8 @@ function exportReportXlsx(){
     return [i.id,i.no||'',i.created_at||'',i.year||'',i.reporter_id||'',i.reporter_name||'',i.vsm||'',areaTxt,i.machine||'',
       catLabel(i.category),i.title||'',i.detail||'',i.suggestion||'',stLabel(i),i.status||'',sfLabel(i),i.safety_result||'',i.safety_note||'',
       i.safety_by||'',i.safety_at||'',i.done_detail||'',i.done_by||'',i.done_at||'',isCounted(i)?'ใช่':'ไม่',
-      ph.filter(p=>p.kind==='before').length,ph.filter(p=>p.kind==='after').length,i.updated_at||''];
+      ph.filter(p=>p.kind==='before').length,ph.filter(p=>p.kind==='after').length,
+      needsPhotoFix(i)?missingPhotos(i).map(k=>PHOTO_LBL[k]).join(' + '):'',i.updated_at||''];
   })];
   const scopeTxt=listScope==='mine'?'ของฉัน':(listScope==='all'?(isDeptAdmin()?(myVsm()||'แผนก'):'ทั้งหมด'):listScope);
   xlsxDownload(`PSIF_Report_${scopeTxt}_${new Date().toISOString().slice(0,10)}.xlsx`.replace(/[\\/:*?"<>|]/g,'-'),rows);
