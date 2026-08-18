@@ -690,7 +690,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.1';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.2';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -940,6 +940,36 @@ async function transferEmployee(from,to,mode,extra={}){
   } else { src.active=0; }
   demoSave();
   return {moved,to:dst.id,employee:dst};
+}
+/* วางรายชื่อพนักงานจาก Excel ทีเดียวหลายคน (2026-08-18)
+   mode 'upsert' = เพิ่ม/แก้ไขรายชื่อ · 'resign' = ลาออก (ย้ายไปช่องว่าง) · 'rename' = เปลี่ยนรหัส
+   ทำทีละแถวฝั่ง server — แถวที่พังไม่ทำให้ทั้งชุดล้ม แล้วคืนผลรายแถวมาให้ดู */
+async function bulkEmployees(mode,rows,onProgress){
+  const errors=[]; let done=0,failed=0,moved=0;
+  if(online()){
+    // แบ่งเป็นชุด กันคำขอเดียวยิงคำสั่ง D1 มากเกินขีดจำกัดของ Worker
+    // (ย้ายข้อมูล 1 คน = หลายคำสั่ง จึงต่อชุดน้อยกว่าการเพิ่ม/แก้ไขรายชื่อ)
+    const CHUNK = mode==='upsert' ? 60 : 25;
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const d=await api('/employees/bulk',{body:{mode,rows:rows.slice(i,i+CHUNK)}});
+      done+=d.done||0; failed+=d.failed||0; moved+=d.moved||0;
+      (d.results||[]).filter(r=>!r.ok).forEach(r=>errors.push(`${r.id||'?'}: ${r.error||'ไม่สำเร็จ'}`));
+      if(onProgress) onProgress(Math.min(i+CHUNK,rows.length),rows.length);
+    }
+    await bootstrap();                    // โหลดพนักงาน + รายการใหม่ทั้งชุด
+    return {done,failed,moved,errors};
+  }
+  // ---- โหมดทดลอง/ออฟไลน์ ----
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i];
+    try{
+      if(mode==='upsert') await upsertMaster('employees',{id:r.id,name:r.name,vsm:r.vsm||'',role:r.role||'user',active:r.active==null?1:r.active});
+      else { const d=await transferEmployee(r.from,r.to,mode,{to_name:r.to_name,to_vsm:r.to_vsm}); moved+=d.moved||0; }
+      done++;
+    }catch(e){ failed++; errors.push(`${r.id||r.from||'?'}: ${e.message}`); }
+    if(onProgress) onProgress(i+1,rows.length);
+  }
+  return {done,failed,moved,errors};
 }
 async function setTarget(year,n){
   if(online()) await api('/targets',{body:{year,per_person_target:n}});
@@ -2375,6 +2405,7 @@ function renderSettings(){
         <tbody id="empRows">${empRows()}</tbody>
       </table></div>
     </div>
+    ${empBulkCardHtml()}
     ${bucketCardHtml()}
     <div class="card"><h3>📍 พื้นที่/เครื่องจักร (${state.areas.length})</h3>
       <button class="btn btn-blue btn-sm" onclick="editArea()">➕ เพิ่ม</button>
@@ -2386,9 +2417,11 @@ function renderSettings(){
       <div class="sub">ระบบกำหนดไว้ 3 ประเภทเท่านั้น (แก้ไข/เพิ่มไม่ได้)</div>
       <div style="margin-top:8px">${FIXED_CATS.map(c=>`<div class="kv"><span style="flex:1">${esc(c.name)}</span></div>`).join('')}</div>
     </div>`;
+  restoreEmpBulkBox();
 }
 async function doIssue(){ const v=$('issVsm').value; await addIssuance(v,yr()); toast('เปิดดำเนินการ '+v,'green'); renderSettings(); }
 async function saveTarget(){ await setTarget(+$('tgtYear').value,+$('tgtN').value||6); toast('บันทึกเป้าหมายแล้ว','green'); }
+function restoreEmpBulkBox(){ const b=$('empBulkBox'); if(b) b.value=empBulkText; }   // renderSettings สร้าง textarea ใหม่ — เอาข้อความที่วางไว้กลับมา
 function editEmp(id){
   const e=id?state.employees.find(x=>x.id===id):{id:'',name:'',vsm:'',role:'user'};
   if(id&&!e){ toast('ไม่พบพนักงาน','red'); return; }
@@ -2415,6 +2448,269 @@ async function saveEmp(){
   const id=$('eId').value.trim().toUpperCase(); if(!id||!$('eName').value.trim()){toast('กรอกรหัสและชื่อ','red');return;}
   await upsertMaster('employees',{id,name:$('eName').value.trim(),vsm:$('eVsm').value.trim(),role:$('eRole').value,active:1});
   toast('บันทึกแล้ว','green'); closeModal(); renderSettings();
+}
+
+/* ====================================================================
+ *  วางรายชื่อพนักงานจาก Excel — ทีเดียวหลายคน (2026-08-18)
+ *  การ์ดเดียว 3 งาน (เลือกโหมดด้านบน): เพิ่ม/แก้ไขรายชื่อ · ลาออก · เปลี่ยนรหัส
+ *  ทุกโหมดต้องกด "ตรวจสอบ/พรีวิว" ก่อน — เห็นว่ากี่คน ซ้ำกับของเดิมไหม
+ *  เป็นคนเดิมที่เปลี่ยนรหัสหรือเปล่า และจะย้ายข้อมูล PSIF กี่เรื่อง
+ * ==================================================================== */
+let empBulkMode='add', empBulkText='', empBulkHeader=true, _empBulkRecs=[], empBulkResult='';
+const EMP_BULK_MODES=[
+  {k:'add',    t:'➕ เพิ่ม/แก้ไขรายชื่อ'},
+  {k:'resign', t:'🚪 พนักงานลาออก'},
+  {k:'rename', t:'🔁 เปลี่ยนรหัสพนักงาน'},
+];
+const EMP_BULK_HELP={
+  add:`คอลัมน์จาก Excel: <b>1) รหัสพนักงาน · 2) ชื่อ-สกุล · 3) หน่วยงาน/VSM · 4) สิทธิ์</b><br>
+    <span style="opacity:.85">คอลัมน์ 3-4 เว้นว่างได้ — ของคนที่มีอยู่แล้ว<b>จะไม่ถูกล้าง</b> (ใช้ค่าเดิม) · คนใหม่ที่เว้นสิทธิ์ = พนักงานทั่วไป<br>
+    รหัสที่มีอยู่แล้ว = <b>แก้ไขข้อมูลเดิม ไม่สร้างซ้ำ</b> · ถ้าเป็น<b>คนเดิมแต่ได้รหัสใหม่</b> ให้ใช้โหมด 🔁 แทน ข้อมูล PSIF เดิมจะได้ย้ายตามไปด้วย (พรีวิวจะเตือนให้)</span>`,
+  resign:`คอลัมน์จาก Excel: <b>1) รหัสพนักงาน</b> (คอลัมน์ 2 ใส่ชื่อไว้ตรวจทานได้ ระบบไม่ใช้)<br>
+    <span style="opacity:.85">ข้อมูล PSIF ของแต่ละคนจะถูกย้ายไป “ช่องว่าง” ของแผนกตัวเองอัตโนมัติ แล้วปิดรหัสเดิม — ข้อมูลไม่หายจากรายงาน และไม่ถูกนับเป็นหัวคนในเป้าหมาย</span>`,
+  rename:`คอลัมน์จาก Excel: <b>1) รหัสเดิม · 2) รหัสใหม่ · 3) ชื่อ-สกุล · 4) หน่วยงาน/VSM</b><br>
+    <span style="opacity:.85">คอลัมน์ 3-4 เว้นว่าง = ใช้ของเดิม · ข้อมูล PSIF เดิมทั้งหมดย้ายไปรหัสใหม่ แล้ว<b>ลบรหัสเก่า</b>ออกจากระบบ</span>`,
+};
+const EMP_BULK_PH={
+  add:'L-1827\tสมชาย ใจดี\tVSM4\nL-1828\tสมหญิง รักงาน\tVSM4\tteamleader',
+  resign:'L-1827\nL-1828',
+  rename:'L-1827\tT-815\nL-1828\tT-816\tสมหญิง รักงาน\tVSM4',
+};
+const EMP_BULK_CTA={add:'บันทึกรายชื่อ',resign:'ยืนยันลาออก',rename:'ยืนยันเปลี่ยนรหัส'};
+const EMP_BULK_ST={
+  new:    {c:'b-green', t:'เพิ่มใหม่'},
+  update: {c:'b-blue',  t:'มีอยู่แล้ว → อัปเดต'},
+  same:   {c:'b-gray',  t:'ซ้ำ — เหมือนเดิม'},
+  dupRow: {c:'b-orange',t:'ซ้ำในรายการที่วาง'},
+  already:{c:'b-gray',  t:'ลาออกไปแล้ว'},
+  merge:  {c:'b-orange',t:'รวมกับรหัสที่มีอยู่'},
+  ok:     {c:'b-green', t:'พร้อมทำ'},
+  bad:    {c:'b-red',   t:'ข้ามแถวนี้'},
+};
+const EMP_BULK_DO=['new','update','ok','merge'];              // สถานะที่จะลงมือทำจริง
+const upId=s=>String(s||'').trim().toUpperCase();
+const looksLikeEmpCode=s=>/^[A-Za-z]{0,3}\s*-?\s*\d{2,6}$/.test(String(s||'').trim());
+const stripTitle=s=>norm(s).replace(/^(นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.)\s*/,'');
+function nItemsOf(id){ return state.items.filter(i=>upId(i.reporter_id)===upId(id)).length; }
+function findEmp(id){ const u=upId(id); return state.employees.find(e=>upId(e.id)===u)||null; }
+/* คนชื่อเดียวกันแต่คนละรหัส = เบาะแสว่า "คนเดิมเปลี่ยนรหัส" ไม่ใช่คนใหม่ */
+function sameNameEmp(name,exceptId){
+  const n=stripTitle(name); if(!n) return null;
+  return state.employees.find(e=>!isBucketId(e.id)&&e.active!==0&&stripTitle(e.name)===n&&upId(e.id)!==upId(exceptId))||null;
+}
+function parseRole(s){
+  const t=norm(s); if(!t) return '';                          // เว้นว่าง = ไม่เปลี่ยนสิทธิ์เดิม
+  const hit=Object.keys(ROLE_LABEL).find(k=>k.toLowerCase()===t||norm(ROLE_LABEL[k])===t);
+  if(hit) return hit;
+  if(/team|หัวหน้า/.test(t)) return 'teamleader';
+  if(/manager|ผู้จัดการ/.test(t)) return 'manager';
+  if(/dept|แผนก/.test(t)) return 'dept_admin';
+  if(/safety|เซฟ|ความปลอดภัย/.test(t)) return 'safety';
+  if(/super|admin|ผู้ดูแล/.test(t)) return 'admin';
+  return 'user';
+}
+function parseEmpBulkRows(){
+  let rows=parseTSV($('empBulkBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
+  if($('empBulkHeader').checked && rows.length) rows=rows.slice(1);
+  return rows.map(r=>r.map(c=>(c||'').trim()));
+}
+/* ---- โหมด ➕ เพิ่ม/แก้ไขรายชื่อ ---- */
+function buildAddRecs(rows){
+  const seen=new Map();
+  return rows.map((c,ix)=>{
+    let id=c[0]||'', name=c[1]||'';
+    const swapped=!looksLikeEmpCode(id)&&looksLikeEmpCode(name);
+    if(swapped){ const t=id; id=name; name=t; }               // วางสลับ "ชื่อ | รหัส" มาก็ยังใช้ได้
+    const r={n:ix+1,id:upId(id),name,vsm:c[2]||'',role:parseRole(c[3]||''),swapped};
+    if(!r.id||!r.name){ r.st='bad'; r.msg=!r.id?'ไม่มีรหัสพนักงาน':'ไม่มีชื่อ-สกุล'; return r; }
+    if(isBucketId(r.id)){ r.st='bad'; r.msg='ห้ามใช้รหัส “ช่องว่าง” เป็นรหัสพนักงาน'; return r; }
+    if(seen.has(r.id)){ r.st='dupRow'; r.msg='รหัสซ้ำกับแถวที่ '+seen.get(r.id)+' (ใช้แถวแรก)'; return r; }
+    seen.set(r.id,r.n);
+    const ex=findEmp(r.id);
+    if(ex){
+      r.vsm=r.vsm||ex.vsm||''; r.role=r.role||ex.role||'user';   // เว้นว่าง = คงค่าเดิม ไม่ล้างทิ้ง
+      const d=[];
+      if((ex.name||'')!==r.name) d.push(`ชื่อ ${ex.name||'—'} → ${r.name}`);
+      if((ex.vsm||'')!==r.vsm) d.push(`หน่วยงาน ${ex.vsm||'—'} → ${r.vsm||'—'}`);
+      if((ex.role||'user')!==r.role) d.push(`สิทธิ์ ${roleLabel(ex.role||'user')} → ${roleLabel(r.role)}`);
+      if(ex.active===0) d.push('เปิดใช้งานอีกครั้ง (เคยแจ้งลาออก)');
+      r.st=d.length?'update':'same'; r.msg=d.join(' · ')||'ข้อมูลตรงกับที่มีอยู่แล้ว ไม่ต้องแก้';
+    }else{
+      r.role=r.role||'user'; r.st='new'; r.msg='';
+      const twin=sameNameEmp(r.name,r.id);                       // ชื่อซ้ำคนเดิม → น่าจะเปลี่ยนรหัส
+      if(twin){ r.twin=twin; r.msg=`ชื่อซ้ำกับ ${twin.id} (${nItemsOf(twin.id)} เรื่อง) — ถ้าเป็นคนเดิมเปลี่ยนรหัส ให้ใช้โหมด 🔁`; }
+    }
+    return r;
+  });
+}
+/* ---- โหมด 🚪 พนักงานลาออก ---- */
+function buildResignRecs(rows){
+  const seen=new Map();
+  return rows.map((c,ix)=>{
+    let id=c[0]||'';
+    if(!looksLikeEmpCode(id)&&looksLikeEmpCode(c[1]||'')) id=c[1];
+    const r={n:ix+1,id:upId(id)};
+    if(!r.id){ r.st='bad'; r.msg='ไม่มีรหัสพนักงาน'; return r; }
+    if(seen.has(r.id)){ r.st='dupRow'; r.msg='รหัสซ้ำกับแถวที่ '+seen.get(r.id); return r; }
+    seen.set(r.id,r.n);
+    const e=findEmp(r.id);
+    if(!e){ r.st='bad'; r.msg='ไม่พบรหัสนี้ในระบบ'; return r; }
+    r.name=e.name; r.vsm=(e.vsm||'').trim(); r.cnt=nItemsOf(e.id);
+    r.to=bucketIdFor(r.vsm); r.newBucket=!bucketOf(r.vsm);
+    if(isBucketId(e.id)){ r.st='bad'; r.msg='รหัสนี้เป็น “ช่องว่าง” ไม่ใช่พนักงาน'; return r; }
+    if(CURRENT_USER&&upId(CURRENT_USER.id)===r.id){ r.st='bad'; r.msg='ทำกับบัญชีที่กำลังใช้งานอยู่ไม่ได้'; return r; }
+    if(e.active===0){ r.st='already'; r.msg='ปิดใช้งานไปแล้ว ไม่ต้องทำซ้ำ'; return r; }
+    r.st='ok'; r.msg=r.newBucket?'ยังไม่มีช่องว่างของแผนกนี้ — ระบบจะสร้างให้':'';
+    return r;
+  });
+}
+/* ---- โหมด 🔁 เปลี่ยนรหัสพนักงาน ---- */
+function buildRenameRecs(rows){
+  const seenFrom=new Map(), seenTo=new Map();
+  const recs=rows.map((c,ix)=>{
+    const r={n:ix+1,id:upId(c[0]),to:upId(c[1]),name:c[2]||'',vsm:c[3]||''};
+    if(!r.id||!r.to){ r.st='bad'; r.msg=!r.id?'ไม่มีรหัสเดิม':'ไม่มีรหัสใหม่'; return r; }
+    if(r.id===r.to){ r.st='bad'; r.msg='รหัสใหม่ซ้ำกับรหัสเดิม'; return r; }
+    if(isBucketId(r.id)||isBucketId(r.to)){ r.st='bad'; r.msg='ใช้กับรหัส “ช่องว่าง” ไม่ได้'; return r; }
+    if(seenFrom.has(r.id)){ r.st='bad'; r.msg='รหัสเดิมซ้ำกับแถวที่ '+seenFrom.get(r.id); return r; }
+    if(seenTo.has(r.to)){ r.st='bad'; r.msg='รหัสใหม่ซ้ำกับแถวที่ '+seenTo.get(r.to); return r; }
+    seenFrom.set(r.id,r.n); seenTo.set(r.to,r.n);
+    const e=findEmp(r.id);
+    if(!e){ r.st='bad'; r.msg='ไม่พบรหัสเดิมในระบบ'; return r; }
+    r.name=r.name||e.name; r.vsm=r.vsm||e.vsm||''; r.cnt=nItemsOf(e.id);
+    r.self=!!(CURRENT_USER&&upId(CURRENT_USER.id)===r.id);
+    const dup=findEmp(r.to);
+    if(dup){ r.st='merge'; r.msg=`รหัส ${r.to} มีอยู่แล้ว (${dup.name}) — ข้อมูลจะถูกรวมเข้าด้วยกัน`; }
+    else { r.st='ok'; r.msg=r.self?'เป็นบัญชีที่กำลังใช้งานอยู่ — ระบบจะสลับให้อัตโนมัติ':''; }
+    return r;
+  });
+  // ไล่รหัสไขว้กันเอง (A→B, B→C) ผลลัพธ์ขึ้นกับลำดับ — กันไว้ก่อน ให้ทำทีละคน
+  const froms=new Set(recs.filter(r=>r.st!=='bad').map(r=>r.id));
+  recs.forEach(r=>{ if(r.st!=='bad'&&froms.has(r.to)){ r.st='bad'; r.msg='รหัสใหม่ไปชนรหัสเดิมของอีกแถว (ไล่/สลับรหัสกันเอง) — ทำทีละคนแทน'; } });
+  return recs;
+}
+/* ---- พรีวิว: กี่คน · ซ้ำไหม · จะย้ายข้อมูลกี่เรื่อง ---- */
+function previewEmpBulk(){
+  empBulkResult=''; empBulkText=$('empBulkBox').value;
+  const m=empBulkMode, rows=parseEmpBulkRows();
+  _empBulkRecs = m==='add'?buildAddRecs(rows) : m==='resign'?buildResignRecs(rows) : buildRenameRecs(rows);
+  const box=$('empBulkPreview'), btn=$('empBulkBtn');
+  btn.textContent=EMP_BULK_CTA[m];
+  if(!_empBulkRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — คัดลอกจาก Excel แล้ววางในช่องด้านบนก่อน (คั่นด้วย Tab)</div>'; btn.disabled=true; return; }
+  const cnt=k=>_empBulkRecs.filter(r=>r.st===k).length;
+  const todo=_empBulkRecs.filter(r=>EMP_BULK_DO.includes(r.st));
+  const moved=todo.reduce((s,r)=>s+(r.cnt||0),0);
+  const chip=(c,t,n)=>n?`<span class="badge ${c}">${t} ${n}</span>`:'';
+  const total=`<span class="badge b-blue">วางมา ${_empBulkRecs.length} แถว</span>`;
+  let sum='', extra='';
+  if(m==='add'){
+    sum=`${total}${chip('b-green','เพิ่มใหม่',cnt('new'))}${chip('b-blue','อัปเดต',cnt('update'))}
+      ${chip('b-gray','ซ้ำ-เหมือนเดิม',cnt('same'))}${chip('b-orange','ซ้ำในรายการ',cnt('dupRow'))}${chip('b-red','ข้าม',cnt('bad'))}`;
+    const twins=_empBulkRecs.filter(r=>r.twin);
+    if(twins.length) extra=`<div class="warn">🔁 <b>${twins.length} คน</b> ชื่อซ้ำกับพนักงานที่มีอยู่แล้วแต่คนละรหัส — ถ้าเป็น<b>คนเดิมที่เปลี่ยนรหัส</b> การเพิ่มแบบนี้จะกลายเป็น 2 คน และข้อมูลเดิมค้างอยู่ที่รหัสเก่า
+      <div style="margin-top:7px"><button class="btn btn-line btn-sm" onclick="empBulkToRename()">🔁 ย้าย ${twins.length} คนนี้ไปโหมด “เปลี่ยนรหัสพนักงาน”</button></div></div>`;
+  } else if(m==='resign'){
+    sum=`${total}${chip('b-orange','ลาออก',cnt('ok'))}${chip('b-gray','ลาออกแล้ว',cnt('already'))}
+      ${chip('b-orange','ซ้ำในรายการ',cnt('dupRow'))}${chip('b-red','ข้าม',cnt('bad'))}
+      ${moved?`<span class="badge b-blue">ย้ายข้อมูล ${moved.toLocaleString()} เรื่อง</span>`:''}`;
+    const nb=[...new Set(todo.filter(r=>r.newBucket).map(r=>r.vsm))];
+    if(nb.length) extra=`<div class="note">ระบบจะสร้าง “ช่องว่าง” ให้ ${nb.length} แผนก: ${esc(nb.map(v=>v||'ไม่ระบุแผนก').join(', '))}</div>`;
+  } else {
+    sum=`${total}${chip('b-green','เปลี่ยนรหัส',cnt('ok'))}${chip('b-orange','รวมกับรหัสเดิม',cnt('merge'))}${chip('b-red','ข้าม',cnt('bad'))}
+      ${moved?`<span class="badge b-blue">ย้ายข้อมูล ${moved.toLocaleString()} เรื่อง</span>`:''}`;
+  }
+  const swapped=_empBulkRecs.filter(r=>r.swapped).length;
+  if(swapped) extra+=`<div class="note">สลับคอลัมน์ให้อัตโนมัติ ${swapped} แถว (วาง “ชื่อ” มาก่อน “รหัส”) — ตรวจในตารางด้านล่างอีกครั้ง</div>`;
+  const bad=_empBulkRecs.filter(r=>r.st==='bad'||r.st==='dupRow');
+  if(bad.length) extra+=`<div class="warn">⚠️ ข้าม ${bad.length} แถว: ${esc(bad.slice(0,6).map(r=>`แถว ${r.n} ${r.id||''} — ${r.msg}`).join(' · '))}${bad.length>6?' …':''}</div>`;
+  const head = m==='add' ? '<th>#</th><th>รหัส</th><th>ชื่อ-สกุล</th><th>หน่วยงาน</th><th>สิทธิ์</th><th>ผลที่จะเกิด</th>'
+             : m==='resign' ? '<th>#</th><th>รหัส</th><th>ชื่อ-สกุล</th><th>หน่วยงาน</th><th>เรื่องที่ย้าย</th><th>ไปช่องว่าง</th><th>ผลที่จะเกิด</th>'
+             : '<th>#</th><th>รหัสเดิม</th><th>รหัสใหม่</th><th>ชื่อ-สกุล</th><th>หน่วยงาน</th><th>เรื่องที่ย้าย</th><th>ผลที่จะเกิด</th>';
+  const CAP=200;
+  const body=_empBulkRecs.slice(0,CAP).map(r=>{
+    const s=EMP_BULK_ST[r.st]||EMP_BULK_ST.bad;
+    const st=`<span class="badge ${s.c}" style="font-size:10px">${s.t}</span>${r.msg?`<div class="sub">${esc(r.msg)}</div>`:''}`;
+    if(m==='add') return `<tr><td>${r.n}</td><td>${esc(r.id||'—')}</td><td>${esc(r.name||'—')}</td><td>${esc(r.vsm||'—')}</td><td>${esc(roleLabel(r.role||'user'))}</td><td>${st}</td></tr>`;
+    if(m==='resign') return `<tr><td>${r.n}</td><td>${esc(r.id||'—')}</td><td>${esc(r.name||'—')}</td><td>${esc(r.vsm||'—')}</td><td>${r.cnt==null?'—':r.cnt}</td><td>${esc(r.to||'—')}</td><td>${st}</td></tr>`;
+    return `<tr><td>${r.n}</td><td>${esc(r.id||'—')}</td><td><b>${esc(r.to||'—')}</b></td><td>${esc(r.name||'—')}</td><td>${esc(r.vsm||'—')}</td><td>${r.cnt==null?'—':r.cnt}</td><td>${st}</td></tr>`;
+  }).join('');
+  box.innerHTML=`<div class="team-sum" style="margin-bottom:8px">${sum}</div>${extra}
+    <div class="scroll-x" style="max-height:300px;overflow-y:auto"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    ${_empBulkRecs.length>CAP?`<div class="sub" style="margin-top:4px">(แสดง ${CAP} แถวแรก จากทั้งหมด ${_empBulkRecs.length})</div>`:''}`;
+  btn.disabled=!todo.length;
+  if(todo.length) btn.textContent=`${EMP_BULK_CTA[m]} ${todo.length} คน`;
+}
+/* ชื่อซ้ำคนละรหัส → เตรียมข้อมูลให้โหมดเปลี่ยนรหัสเลย (รหัสเดิม → รหัสใหม่) */
+function empBulkToRename(){
+  const t=_empBulkRecs.filter(r=>r.twin);
+  if(!t.length){ toast('ไม่มีรายการที่ชื่อซ้ำ','orange'); return; }
+  empBulkHeader=false;
+  setEmpBulkMode('rename', t.map(r=>[r.twin.id,r.id,r.name,r.vsm||r.twin.vsm||''].join('\t')).join('\n'));
+  toast('เตรียมรายการให้แล้ว — กดตรวจสอบ/พรีวิวอีกครั้ง','blue');
+}
+/* ---- ลงมือทำจริง ---- */
+async function doEmpBulk(){
+  if(!requireAdmin()) return;
+  const m=empBulkMode, todo=_empBulkRecs.filter(r=>EMP_BULK_DO.includes(r.st));
+  if(!todo.length){ toast('กดตรวจสอบ/พรีวิวก่อน','orange'); return; }
+  const moved=todo.reduce((s,r)=>s+(r.cnt||0),0);
+  const ask = m==='add' ? `บันทึกรายชื่อ ${todo.length} คน\n(เพิ่มใหม่ ${todo.filter(r=>r.st==='new').length} · อัปเดตของเดิม ${todo.filter(r=>r.st==='update').length})`
+            : m==='resign' ? `แจ้งลาออก ${todo.length} คน\nย้ายข้อมูล ${moved} เรื่องไป “ช่องว่าง” ของแผนก แล้วปิดรหัสเดิม`
+            : `เปลี่ยนรหัส ${todo.length} คน\nย้ายข้อมูล ${moved} เรื่องไปรหัสใหม่ แล้วลบรหัสเก่าออกจากระบบ`;
+  if(!confirm(ask+'\n\nยืนยัน?')) return;
+  const mode = m==='add'?'upsert':m;
+  const rows = m==='add' ? todo.map(r=>({id:r.id,name:r.name,vsm:r.vsm||'',role:r.role||'user',active:1}))
+             : m==='resign' ? todo.map(r=>({from:r.id,to:r.to,to_name:bucketNameFor(r.vsm),to_vsm:r.vsm}))
+             : todo.map(r=>({from:r.id,to:r.to,to_name:r.name,to_vsm:r.vsm}));
+  const self = m==='rename' ? todo.find(r=>r.self) : null;
+  const btn=$('empBulkBtn'); if(btn) btn.disabled=true;
+  try{
+    const d=await bulkEmployees(mode,rows,(a,b)=>{ if(btn&&b>25) btn.textContent=`กำลังทำ ${a}/${b}...`; });
+    // เปลี่ยนรหัสของตัวเอง → อัปเดต session ทันที ไม่งั้นคำขอถัดไปจะไม่รู้จักตัวตน (X-Emp-Id เดิมถูกลบแล้ว)
+    if(self){
+      const me=findEmp(self.to);
+      CURRENT_USER={...CURRENT_USER,id:self.to,name:self.name,vsm:self.vsm,role:(me&&me.role)||CURRENT_USER.role};
+      LS.set('psif_user',CURRENT_USER);
+      const roleTxt=(CURRENT_USER.role&&CURRENT_USER.role!=='user')?' · '+roleLabel(CURRENT_USER.role):'';
+      $('who').innerHTML=esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+esc(roleTxt);
+      renderNav();
+    }
+    const okTxt = m==='add' ? `บันทึกรายชื่อ ${d.done} คนแล้ว`
+                : m==='resign' ? `แจ้งลาออก ${d.done} คน · ย้ายข้อมูล ${(d.moved||0).toLocaleString()} เรื่อง`
+                : `เปลี่ยนรหัส ${d.done} คน · ย้ายข้อมูล ${(d.moved||0).toLocaleString()} เรื่อง`;
+    empBulkResult=`<div class="${d.failed?'warn':'note'}">✅ ${esc(okTxt)}${d.failed?`<br>❌ ไม่สำเร็จ ${d.failed} รายการ: ${esc(d.errors.slice(0,5).join(' · '))}${d.errors.length>5?' …':''}`:''}</div>`;
+    empBulkText=''; _empBulkRecs=[];
+    toast((d.failed?'⚠️ ':'✅ ')+okTxt, d.failed?'orange':'green');
+    refreshAll(); renderSettings();
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent=EMP_BULK_CTA[m]; }
+    toast('ไม่สำเร็จ: '+e.message,'red');
+  }
+}
+/* ---- การ์ดบนหน้าตั้งค่า (อยู่ใต้ตารางพนักงาน) ---- */
+function setEmpBulkMode(m,text){
+  empBulkText = text!=null ? text : (($('empBulkBox')&&$('empBulkBox').value)||'');
+  empBulkMode=m; empBulkResult=''; _empBulkRecs=[];
+  const card=$('empBulkCard'); if(!card) return;
+  card.innerHTML=empBulkInner();
+  $('empBulkBox').value=empBulkText;
+}
+function empBulkCardHtml(){ return `<div class="card" id="empBulkCard">${empBulkInner()}</div>`; }
+function empBulkInner(){
+  const m=empBulkMode;
+  return `<h3>📥 วางรายชื่อพนักงานจาก Excel (ทีเดียวหลายคน)</h3>
+    <div class="sub" style="margin-bottom:8px">คัดลอกจาก Excel มาวางในช่องด้านล่างได้เลย — เลือกก่อนว่าจะทำอะไรกับรายชื่อชุดนี้ · ทุกโหมดต้องกด <b>ตรวจสอบ/พรีวิว</b> ดูผลก่อน จึงจะกดยืนยันได้</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      ${EMP_BULK_MODES.map(o=>`<button class="chip ${m===o.k?'on':''}" onclick="setEmpBulkMode('${o.k}')">${o.t}</button>`).join('')}
+    </div>
+    <div class="note" style="margin-bottom:8px">${EMP_BULK_HELP[m]}</div>
+    <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="empBulkHeader" ${empBulkHeader?'checked':''} onchange="empBulkHeader=this.checked"> ข้ามแถวแรก (หัวตาราง)</label>
+    <textarea class="inp" id="empBulkBox" style="min-height:110px;font-family:monospace;font-size:12.5px" placeholder="${esc(EMP_BULK_PH[m])}" oninput="empBulkText=this.value"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button class="btn btn-line btn-sm" onclick="previewEmpBulk()">🔎 ตรวจสอบ/พรีวิว</button>
+      <button class="btn ${m==='add'?'btn-blue':'btn-orange'} btn-sm" id="empBulkBtn" onclick="doEmpBulk()" disabled>${EMP_BULK_CTA[m]}</button>
+    </div>
+    <div id="empBulkPreview" style="margin-top:10px">${empBulkResult}</div>`;
 }
 
 /* ====================================================================

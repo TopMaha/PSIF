@@ -84,12 +84,14 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.1', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.2', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
           // ย้ายข้อมูล PSIF ระหว่างรหัสพนักงาน (เปลี่ยนรหัส / ลาออก) — ต้องมาก่อน CRUD ปกติ
           if (seg[1] === 'transfer') return await empTransferRoute(env, request);
+          // วางรายชื่อจาก Excel ทีเดียวหลายคน (เพิ่ม/แก้ไข · ลาออก · เปลี่ยนรหัส)
+          if (seg[1] === 'bulk')     return await empBulkRoute(env, request);
           return await crudRoute(env, request, seg, 'employees');
         case 'areas':     return await crudRoute(env, request, seg, 'areas');
         case 'categories':return await crudRoute(env, request, seg, 'categories');
@@ -550,15 +552,25 @@ async function empTransferRoute(env, request) {
   const b = await request.json();
   const deny = await requireSuperAdmin(env, request, b);
   if (deny) return deny;
+  try {
+    const r = await doTransfer(env, b);
+    return ok(r);
+  } catch (e) {
+    return err((e && e.message) || String(e), (e && e.status) || 400);
+  }
+}
 
-  const from = String(b.from || '').trim();
-  const to   = String(b.to   || '').trim();
-  const mode = b.mode === 'resign' ? 'resign' : 'rename';
-  if (!from || !to) return err('ต้องระบุรหัสเดิม (from) และรหัสปลายทาง (to)');
-  if (from.toUpperCase() === to.toUpperCase()) return err('รหัสเดิมกับรหัสปลายทางซ้ำกัน');
+/* แกนกลางการย้ายข้อมูล — ใช้ร่วมกันระหว่างย้ายทีละคน (/employees/transfer)
+   และวางรายชื่อทีเดียวหลายคนจาก Excel (/employees/bulk) */
+async function doTransfer(env, b) {
+  const from = String((b && b.from) || '').trim();
+  const to   = String((b && b.to)   || '').trim();
+  const mode = b && b.mode === 'resign' ? 'resign' : 'rename';
+  if (!from || !to) throw new Error('ต้องระบุรหัสเดิม (from) และรหัสปลายทาง (to)');
+  if (from.toUpperCase() === to.toUpperCase()) throw new Error('รหัสเดิมกับรหัสปลายทางซ้ำกัน');
 
   const src = await env.DB.prepare('SELECT * FROM employees WHERE id=? COLLATE NOCASE').bind(from).first();
-  if (!src) return err('ไม่พบรหัสพนักงานเดิม: ' + from, 404);
+  if (!src) { const e = new Error('ไม่พบรหัสพนักงานเดิม: ' + from); e.status = 404; throw e; }
 
   let dst = await env.DB.prepare('SELECT * FROM employees WHERE id=? COLLATE NOCASE').bind(to).first();
   if (!dst) {   // ปลายทางยังไม่มี → สร้างให้ (ช่องว่างของแผนก หรือ รหัสใหม่ของคนเดิม)
@@ -588,7 +600,51 @@ async function empTransferRoute(env, request) {
   } else {
     await env.DB.prepare('UPDATE employees SET active=0 WHERE id=? COLLATE NOCASE').bind(from).run();
   }
-  return ok({ from, to: dst.id, mode, moved, employee: dst });
+  return { from, to: dst.id, mode, moved, employee: dst };
+}
+
+/* ---------------- วางรายชื่อพนักงานจาก Excel ทีเดียวหลายคน (2026-08-18) ----------------
+ *  POST /employees/bulk  { mode:'upsert'|'resign'|'rename', rows:[...] }
+ *    upsert → rows: { id, name, vsm?, role? }            เพิ่มรายชื่อใหม่ / แก้ไขรายชื่อเดิม
+ *    resign → rows: { from, to, to_name?, to_vsm? }      ย้ายข้อมูลไป "ช่องว่าง" ของแผนก แล้วปิดรหัสเดิม
+ *    rename → rows: { from, to, to_name?, to_vsm? }      คนเดิมได้รหัสใหม่ ย้ายข้อมูลตาม แล้วลบรหัสเก่า
+ *  ทำทีละแถวและรายงานผลรายแถว — แถวที่พังไม่ทำให้ทั้งชุดล้ม (Super Admin เท่านั้น) */
+async function empBulkRoute(env, request) {
+  if (request.method !== 'POST') return err('method not allowed', 405);
+  const b = await request.json();
+  const deny = await requireSuperAdmin(env, request, b);
+  if (deny) return deny;
+
+  const mode = ['upsert', 'resign', 'rename'].includes(b.mode) ? b.mode : '';
+  if (!mode) return err('mode ต้องเป็น upsert / resign / rename');
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  if (!rows.length) return err('no rows');
+  if (rows.length > 2000) return err('มากเกินไป — วางได้ครั้งละไม่เกิน 2000 แถว');
+
+  const results = [];
+  let done = 0, failed = 0, moved = 0;
+  for (const r of rows) {
+    try {
+      if (mode === 'upsert') {
+        const id = String(r.id || '').trim(), name = String(r.name || '').trim();
+        if (!id || !name) throw new Error('ต้องมีรหัสพนักงานและชื่อ');
+        await env.DB.prepare(
+          `INSERT INTO employees (id,name,vsm,role,active) VALUES (?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, vsm=excluded.vsm, role=excluded.role, active=excluded.active`
+        ).bind(id, name, r.vsm || '', r.role || 'user', r.active == null ? 1 : r.active).run();
+        results.push({ id, ok: true });
+      } else {
+        const d = await doTransfer(env, { ...r, mode });
+        moved += d.moved || 0;
+        results.push({ id: r.from, to: d.to, moved: d.moved || 0, ok: true });
+      }
+      done++;
+    } catch (e) {
+      failed++;
+      results.push({ id: r.id || r.from || '', ok: false, error: (e && e.message) || String(e) });
+    }
+  }
+  return ok({ mode, done, failed, moved, results });
 }
 
 /* ---------------- targets ---------------- */
