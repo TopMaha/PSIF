@@ -690,7 +690,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.2';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.3';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -982,6 +982,10 @@ async function addIssuance(vsm,year){
 }
 function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
 function empVsm(id){ const e=state.employees.find(x=>x.id===id); return e?(e.vsm||''):''; }
+/* หน่วยงานที่ใช้ "จัดกลุ่ม/กรอง" บนหน้าจอ — ยึดแผนกปัจจุบันของเจ้าของเรื่องก่อนเสมอ
+   (i.vsm คือแผนก ณ วันที่ส่ง ถ้าคนย้ายแผนก ใบเก่าจะค้างอยู่แผนกเดิม → กลุ่มใหม่ขึ้น 0)
+   ตกมาที่ i.vsm เมื่อไม่พบรหัสในทะเบียนพนักงานแล้ว (ข้อมูลนำเข้า/รหัสที่ถูกลบ) */
+function itemDept(it){ return ((empVsm(it.reporter_id)||it.vsm||'').trim())||'(ไม่ระบุ)'; }
 
 /* ====================================================================
  *  "ช่องว่าง" ข้อมูลพนักงานลาออก (2026-08-02) — 1 คน / 1 แผนก
@@ -1504,7 +1508,7 @@ function listBaseItems(){
   let base=state.items.slice();
   if(isDeptAdmin()) base=base.filter(i=>((i.vsm||'').trim()===myVsm()) || i.reporter_id===CURRENT_USER.id);
   if(listScope==='mine') base=base.filter(i=>i.reporter_id===CURRENT_USER.id);
-  else if(listScope!=='all') base=base.filter(i=>i.vsm===listScope);
+  else if(listScope!=='all') base=base.filter(i=>itemDept(i)===listScope);
   return base;
 }
 /* รายการหลังกรองครบ (scope + สถานะ + ประเภท + ค้นหา) — ไม่รวมแบ่งหน้า
@@ -1989,7 +1993,7 @@ function deptTargetData(items){
   const head={};
   visibleEmployees().forEach(e=>{ const d=(e.vsm||'').trim()||'(ไม่ระบุ)'; head[d]=(head[d]||0)+1; });
   const act={};
-  items.forEach(i=>{ const d=(i.vsm||empVsm(i.reporter_id)||'(ไม่ระบุ)').trim();
+  items.forEach(i=>{ const d=itemDept(i);
     const o=(act[d]??={total:0,'PSIF':0,'Near miss':0,'Behavior':0}); o.total++; if(o[i.category]!=null)o[i.category]++; });
   const depts=[...new Set([...Object.keys(head),...Object.keys(act)])];
   return depts.map(d=>({dept:d, head:head[d]||0, act:act[d]||{total:0,'PSIF':0,'Near miss':0,'Behavior':0}}));

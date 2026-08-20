@@ -84,7 +84,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.2', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.3', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -503,6 +503,21 @@ async function servePhoto(env, key) {
   return new Response(obj.body, { headers: h });
 }
 
+/* ---------------- หน่วยงานบนใบ PSIF ต้องเดินตามแผนกปัจจุบันของเจ้าของเรื่อง (2026-08-20) ----------------
+ *  psif.vsm ถูกคัดลอกไว้ตอน "ส่งเรื่อง" — ถ้าคนย้ายแผนก/แผนกเปลี่ยนชื่อ ใบเก่าจะค้างอยู่แผนกเดิม
+ *  ผลคือ: แดชบอร์ดนับเข้ากลุ่มที่ไม่มีแล้ว · Admin แผนกใหม่มองไม่เห็นใบเก่า (scope ที่ vsm=?)
+ *          · ประตู "เปิดดำเนินการ" (issuances) ไปถามหาแผนกเดิม
+ *  จึงย้ายใบตามทุกครั้งที่แผนกของพนักงานถูกแก้ */
+async function syncPsifVsm(env, empId, vsm) {
+  const id = String(empId || '').trim();
+  if (!id) return 0;
+  const v = String(vsm == null ? '' : vsm).trim();
+  const r = await env.DB.prepare(
+    "UPDATE psif SET vsm=?, updated_at=? WHERE reporter_id=? COLLATE NOCASE AND TRIM(COALESCE(vsm,''))<>?"
+  ).bind(v, nowISO(), id, v).run();
+  return (r && r.meta && r.meta.changes) || 0;
+}
+
 /* ---------------- generic CRUD (employees / areas / categories) ---------------- */
 async function crudRoute(env, request, seg, table) {
   const id = seg[1];
@@ -520,6 +535,7 @@ async function crudRoute(env, request, seg, table) {
         `INSERT INTO employees (id,name,vsm,role,active) VALUES (?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET name=excluded.name, vsm=excluded.vsm, role=excluded.role, active=excluded.active`
       ).bind(b.id, b.name, b.vsm || '', b.role || 'user', b.active ?? 1).run();
+      await syncPsifVsm(env, b.id, b.vsm || '');            // ย้ายแผนก → ใบเก่าตามไปด้วย
     } else if (table === 'areas') {
       await env.DB.prepare(
         `INSERT INTO areas (id,name,vsm,active) VALUES (?,?,?,?)
@@ -587,6 +603,8 @@ async function doTransfer(env, b) {
     'UPDATE psif SET reporter_id=?, reporter_name=?, updated_at=? WHERE reporter_id=? COLLATE NOCASE'
   ).bind(dst.id, name, nowISO(), from).run();
   const moved = (r && r.meta && r.meta.changes) || 0;
+  // ใบที่ย้ายมาต้องอยู่แผนกของรหัสปลายทาง (รหัสใหม่ของคนเดิม / "ช่องว่าง" ของแผนกที่ลาออก)
+  await syncPsifVsm(env, dst.id, dst.vsm || '');
 
   if (mode === 'rename') {
     // คนเดิม รหัสใหม่ → ประวัติผู้ดำเนินการ/ผู้ตรวจ และการแจ้งเตือน ต้องตามไปด้วย
@@ -632,7 +650,8 @@ async function empBulkRoute(env, request) {
           `INSERT INTO employees (id,name,vsm,role,active) VALUES (?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET name=excluded.name, vsm=excluded.vsm, role=excluded.role, active=excluded.active`
         ).bind(id, name, r.vsm || '', r.role || 'user', r.active == null ? 1 : r.active).run();
-        results.push({ id, ok: true });
+        const rev = await syncPsifVsm(env, id, r.vsm || ''); // ย้ายแผนก → ใบเก่าตามไปด้วย
+        results.push({ id, revsm: rev, ok: true });
       } else {
         const d = await doTransfer(env, { ...r, mode });
         moved += d.moved || 0;
