@@ -17,6 +17,7 @@
   --orange:#B45309; --orange-bg:#FFF7ED; --orange-bd:#FDD9A8;
   --red:#C81E1E; --red-bg:#FEF2F2; --red-bd:#FBC9C9;
   --purple:#6D28D9; --purple-bg:#F4F0FE;
+  --rose:#BE185D; --rose-bg:#FDF2F8; --rose-bd:#FBCFE8;   /* ส่งกลับให้แก้ไข (v2.4) */
   --amber:#F59E0B; /* hi-vis safety accent */
   --tnc:#1B75BB;   /* TENNECO brand blue */
   --shadow:0 1px 2px rgba(11,42,107,.05),0 2px 8px rgba(11,42,107,.06);
@@ -128,6 +129,7 @@ textarea.inp{resize:vertical;min-height:74px}
 .b-red{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
 .b-purple{background:var(--purple-bg);color:var(--purple);border-color:#DDD3FB}
 .b-gray{background:#F1F5F9;color:var(--muted);border-color:#E2E8F0}
+.b-ret{background:var(--rose-bg);color:var(--rose);border-color:var(--rose-bd)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{white-space:nowrap;padding:8px 15px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--muted);font-size:13px;font-weight:600;transition:.15s;box-shadow:var(--shadow)}
@@ -140,6 +142,8 @@ textarea.inp{resize:vertical;min-height:74px}
 /* ชิป "ขาดรูป" — ของค้างที่ต้องตามเก็บ */
 .chip.warn-chip{color:var(--red);border-color:#FECACA;background:#FEF2F2}
 .chip.warn-chip.on{background:linear-gradient(135deg,var(--red),#991B1B);color:#fff;border-color:var(--red);box-shadow:0 3px 10px rgba(220,38,38,.3)}
+.chip.ret-chip{color:var(--rose);border-color:var(--rose-bd);background:var(--rose-bg)}
+.chip.ret-chip.on{background:linear-gradient(135deg,var(--rose),#9D174D);color:#fff;border-color:var(--rose);box-shadow:0 3px 10px rgba(190,24,93,.3)}
 
 /* ---------- stepper ---------- */
 .stepper{display:flex;align-items:center;margin:6px 0}
@@ -152,6 +156,8 @@ textarea.inp{resize:vertical;min-height:74px}
 .step.cur .dot{background:var(--blue);box-shadow:0 0 0 4px var(--blue-light)}
 .step.cur{color:var(--blue)}
 .step.rej .dot{background:var(--red)}
+.step.ret .dot{background:var(--rose);box-shadow:0 0 0 4px var(--rose-bg)}
+.step.ret{color:var(--rose)}
 .step.done::before,.step.cur::before{background:var(--green)}
 
 /* ---------- stat tiles ---------- */
@@ -368,6 +374,7 @@ button.ptag{cursor:pointer}
 .ptag.t-work{background:var(--purple-bg);color:var(--purple);border-color:#DDD3FB}
 .ptag.t-fail{background:var(--red-bg);color:var(--red);border-color:var(--red-bd)}
 .ptag.t-gain{background:var(--green-bg);color:var(--green);border-color:var(--green-bd)}
+.ptag.t-back{background:var(--rose-bg);color:var(--rose);border-color:var(--rose-bd)}
 .pipe{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 10px}
 .pipe .ptag{font-size:11.5px;padding:7px 11px}
 .stat .l2{font-size:10.5px;font-weight:700;color:var(--green);margin-top:4px;line-height:1.3}
@@ -690,7 +697,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.3';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.4';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -716,6 +723,9 @@ function catKeyOf(v){ const c=FIXED_CATS.find(x=>x.key===v||x.name===v); return 
 
 const STATUS = {
   recorded:  {label:'บันทึกเข้าระบบ', cls:'b-blue'},
+  /* v2.4: Safety ส่งเรื่องกลับให้ผู้รายงานแก้ไข (ปกติ = "ไปถ่ายรูปก่อนแก้ไขมาใหม่")
+     เรื่องในสถานะนี้ถูกบล็อก — อนุมัติ/ออกเลข/ปิดงานไม่ได้ จนกว่าผู้รายงานจะแนบรูปแล้วส่งกลับเข้าระบบ */
+  returned:  {label:'ส่งกลับให้แก้ไข', cls:'b-ret'},
   safety:    {label:'Safety ตรวจแล้ว', cls:'b-purple'},
   inprogress:{label:'กำลังดำเนินการ', cls:'b-orange'},
   done:      {label:'เสร็จ', cls:'b-green'},
@@ -1026,6 +1036,8 @@ function notifMessages(old,patch){ // mirrors worker.js
   if(patch.safety_result==='not_cardinal'&&old.safety_result!=='not_cardinal') msgs.push(`⚠️ Safety: เรื่อง "${t}" ไม่เข้าข่าย PSIF Cardinal rules${patch.safety_note?' — '+patch.safety_note:''}`);
   if(patch.safety_result==='duplicate'&&old.safety_result!=='duplicate') msgs.push(`🔁 Safety: เรื่อง "${t}" เป็นเรื่องซ้ำ${patch.safety_note?' — '+patch.safety_note:''}`);
   if(patch.safety_result==='rejected'&&old.safety_result!=='rejected') msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${patch.safety_note?' — '+patch.safety_note:''}`);
+  if(patch.status==='returned'&&old.status!=='returned') msgs.push(`↩️ Safety ส่งเรื่อง "${t}" กลับให้แก้ไข${patch.return_reason?' — '+patch.return_reason:''}`);
+  if(patch.status==='recorded'&&old.status==='returned') msgs.push(`📨 เรื่อง "${t}" ถูกส่งกลับเข้าระบบแล้ว — รอ Safety ตรวจอีกครั้ง`);
   if(patch.status==='inprogress'&&old.status!=='inprogress') msgs.push(`🚀 เรื่อง "${t}" เริ่มดำเนินการแล้ว${patch.no?' (No.'+patch.no+')':''}`);
   if(patch.status==='done'&&old.status!=='done') msgs.push(`🏁 เรื่อง "${t}" ปิดงานเรียบร้อยแล้ว`);
   if(['title','detail','suggestion','category','machine','area_id'].some(k=>k in patch&&String(patch[k]??'')!==String(old[k]??''))) msgs.push(`✏️ มีการแก้ไขเนื้อหาเรื่อง "${t}"`);
@@ -1461,14 +1473,42 @@ function missingPhotos(it){
   if(it.status==='done' && !hasPhoto(it,'after')) m.push('after');
   return m;
 }
-/* ต้องตามเก็บรูปย้อนหลังไหม — เรื่องที่ Safety ตีตก (ซ้ำ/ไม่เข้าข่าย) จบไปแล้ว ไม่ต้องตาม */
-function needsPhotoFix(it){ return !!it && !isRejected(it) && missingPhotos(it).length>0; }
+/* ต้องตามเก็บรูปย้อนหลังไหม — เรื่องที่ Safety ตีตก (ซ้ำ/ไม่เข้าข่าย) จบไปแล้ว ไม่ต้องตาม
+   เรื่องที่ "ส่งกลับให้แก้ไข" ก็ไม่นับที่นี่ — มันมีระบบติดตามของตัวเอง (ดูด้านล่าง) จะได้ไม่ถูกนับ 2 ที่ */
+function needsPhotoFix(it){ return !!it && !isRejected(it) && !isReturned(it) && missingPhotos(it).length>0; }
 /* ใครแนบรูปย้อนหลังได้: เจ้าของเรื่อง · Admin แผนกนั้น · Safety · Super Admin */
 function canAddPhoto(it){ return !!it && (it.reporter_id===(CURRENT_USER&&CURRENT_USER.id) || canManage(it) || isSafety()); }
+
+/* ====================================================================
+ *  "ส่งกลับให้แก้ไข" (status = 'returned') — เพิ่ม 2026-08-23 (v2.4)
+ *  ที่มา: Safety ตรวจแล้วพบว่าพนักงานเลือก "ประเภท" ผิด จึงแก้ประเภทให้ใหม่
+ *    · เลือก Near miss/Behavior (ไม่ต้องมีรูป) แต่จริง ๆ เป็น PSIF (Con) → พอเปลี่ยนแล้ว "รูปก่อนแก้ไข" หาย
+ *      → ส่งกลับให้ผู้รายงานไปถ่ายรูปจุดเดิมมาใหม่ · เรื่องถูกบล็อกจนกว่าจะแนบครบ
+ *    · เลือก PSIF (Con) (มีรูปก่อนแล้ว) แต่จริง ๆ เป็น Near miss/Behavior → รูปที่แนบไว้ไม่ต้องลบ
+ *      เก็บเป็น "รูปประกอบ" ไม่บังคับรูปหลัง (hasOptionalPhotos)
+ * ==================================================================== */
+const RETURN_REASON_CON='Safety เปลี่ยนประเภทเป็น PSIF (Con) — ประเภทนี้ต้องมีรูป "ก่อนแก้ไข" กรุณาไปถ่ายรูปจุดเดิมแล้วแนบเข้ามาใหม่';
+function isReturned(it){ return !!it && it.status==='returned'; }
+/* ส่งกลับได้เฉพาะช่วงก่อนเริ่มงานจริง — ถ้าเริ่มทำ/ปิดงานไปแล้ว ให้ใช้ระบบ "ตามเก็บรูปย้อนหลัง" (v2.1) แทน
+   เพราะย้อนไปถ่าย "ก่อนแก้ไข" ไม่ได้อีกแล้ว การบล็อกงานที่ทำไปแล้วมีแต่ทำให้ค้าง */
+const RETURNABLE_STATUS=['recorded','safety'];
+function canReturnItem(it){ return !!it && isSafety() && RETURNABLE_STATUS.includes(it.status); }
+/* เปลี่ยนประเภทเป็น PSIF (Con) แล้วรูป "ก่อนแก้ไข" หาย → ต้องส่งกลับอัตโนมัติ */
+function shouldReturnForPhoto(it,newCat){
+  return catIsCon(newCat) && !isLegacyItem(it) && RETURNABLE_STATUS.includes(it.status) && !hasPhoto(it,'before');
+}
+/* รูปที่ผู้รายงานยังต้องถ่ายมาใหม่ก่อนส่งกลับเข้าระบบได้ */
+function returnBlockers(it){ return isReturned(it)? missingPhotos(it) : []; }
+function canResubmit(it){ return isReturned(it) && !returnBlockers(it).length; }
+/* ใครกดส่งกลับเข้าระบบได้: เจ้าของเรื่อง (คนที่ต้องไปถ่ายรูป) · Admin แผนกนั้น · Safety/Super Admin */
+function canDoResubmit(it){ return canAddPhoto(it); }
+/* ประเภทที่ "ไม่บังคับรูป" แต่มีรูปติดมาแล้ว (มักมาจากตอนเป็น PSIF (Con)) — เก็บไว้เป็นรูปประกอบ */
+function hasOptionalPhotos(it){ return !!it && !photoRuleOn(it) && ((it.photos||[]).length>0); }
 /* 2026-08-03 (v1.9): กลุ่ม "ระหว่างทาง" ของเรื่องที่ส่งแล้ว — ทุกเรื่องอยู่กลุ่มเดียวเท่านั้น
    counted = อนุมัติ+จบ (นับผลงาน) · wait = รอ Safety พิจารณา · work = อนุมัติแล้วกำลังดำเนินการ · fail = ไม่ผ่าน
    ใช้บอกพนักงานว่าเรื่องที่ส่งไป "ไม่ได้หาย" แค่ยังไม่ถึงเงื่อนไขนับผลงาน */
 function pipeKind(it){
+  if(isReturned(it)) return 'back';        // v2.4: ค้างอยู่ที่ "ตัวผู้รายงาน" ไม่ใช่ที่ Safety
   const k=safetyKind(it);
   if(REJECT_KINDS.includes(k)) return 'fail';
   if(k==='approved') return it.status==='done' ? 'counted' : 'work';
@@ -1477,6 +1517,7 @@ function pipeKind(it){
 const PIPE_INFO={
   wait:{ic:'⏳',label:'Safety กำลังพิจารณา',cls:'t-wait'},
   work:{ic:'🔧',label:'กำลังดำเนินการ',   cls:'t-work'},
+  back:{ic:'↩️',label:'ส่งกลับให้คุณแก้ไข', cls:'t-back'},
   fail:{ic:'✖️',label:'ไม่ผ่านการพิจารณา', cls:'t-fail'},
 };
 function stageOf(it){
@@ -1485,19 +1526,22 @@ function stageOf(it){
   return it.status;
 }
 function stepIndex(it){ // 0..4 completed steps
-  if(isRejected(it)) return 1;
+  if(isRejected(it)||isReturned(it)) return 1;
   return {recorded:1,safety:2,inprogress:3,done:4}[it.status]||0;
 }
 function renderStepper(it){
-  const rej=isRejected(it); const ci=stepIndex(it);
+  const rej=isRejected(it), ret=isReturned(it); const ci=stepIndex(it);
   return `<div class="stepper">`+STEPS.map((s,i)=>{
-    const n=i+1; let cls=''; if(rej&&i===1)cls='rej'; else if(n<ci)cls='done'; else if(n===ci)cls=(it.status==='done')?'done':'cur';
-    const ic = rej&&i===1?'✕':(n<=ci?(n<ci||it.status==='done'?'✓':n):n);
+    const n=i+1; let cls='';
+    if(rej&&i===1)cls='rej'; else if(ret&&i===1)cls='ret';
+    else if(n<ci)cls='done'; else if(n===ci)cls=(it.status==='done')?'done':'cur';
+    const ic = (rej&&i===1)?'✕':((ret&&i===1)?'↩':(n<=ci?(n<ci||it.status==='done'?'✓':n):n));
     return `<div class="step ${cls}"><div class="dot">${ic}</div>${s}</div>`;
   }).join('')+`</div>`;
 }
 function statusBadge(it){
   const k=safetyKind(it);
+  if(isReturned(it)) return '<span class="badge b-ret">↩️ ส่งกลับให้แก้ไข</span>';
   if(REJECT_KINDS.includes(k)){ const s=SAFETY_KIND[k]; return `<span class="badge ${s.cls}">${s.label}</span>`; }
   if(it.status==='safety'&&k==='approved') return '<span class="badge b-purple" style="background:var(--purple-bg);color:var(--purple);border-color:#DDD6FE">Safety อนุมัติ</span>';
   const s=STATUS[it.status]||STATUS.recorded; return `<span class="badge ${s.cls}">${s.label}</span>`;
@@ -1556,9 +1600,13 @@ function renderList(){
   const nFix=listFilteredItems({status:'nophoto'}).length;
   if(nFix) chips.push(['nophoto','⚠️ ขาดรูป']);            // โชว์เฉพาะตอนมีของค้าง — ไม่มีก็ไม่ต้องรก
   else if(listFilter==='nophoto') listFilter='all';
+  const nRet=listFilteredItems({status:'returned'}).length;   // v2.4 — เรื่องที่ส่งกลับให้ผู้รายงานแก้ไข
+  if(nRet) chips.splice(2,0,['returned','↩️ ส่งกลับให้แก้ไข']);
+  else if(listFilter==='returned') listFilter='all';
   $('listChips').innerHTML=chips.map(([k,l])=>{
     const n=k==='nophoto'?nFix:listFilteredItems({status:k}).length;
-    return `<button class="chip ${listFilter===k?'on':''}${k==='nophoto'?' warn-chip':''}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
+    const extra=k==='nophoto'?' warn-chip':(k==='returned'?' ret-chip':'');
+    return `<button class="chip ${listFilter===k?'on':''}${extra}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
   }).join('');
   const arr=listFilteredItems();
   // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
@@ -1574,11 +1622,16 @@ function baThumbs(it){
   const ph=it.photos||[];
   const before=ph.filter(p=>p.kind==='before');
   const after =ph.filter(p=>p.kind==='after');
-  if(!before.length && !after.length && !photoRuleOn(it)) return '';
+  const rule=photoRuleOn(it);
+  if(!before.length && !after.length && !rule) return '';
   const cell=(arr,cls,cap)=> arr.length
     ? `<div class="ba"><img src="${photoSrc(arr[0])}" loading="lazy"><span class="cap ${cls}">${cap}</span>${arr.length>1?`<span class="cap pc">+${arr.length-1}</span>`:''}</div>`
     : `<div class="ba"><div class="none">ยังไม่มีรูป${cap}</div></div>`;
-  return `<div class="ba-thumbs">${cell(before,'b','ก่อน')}${cell(after,'a','หลัง')}</div>`;
+  /* v2.4: ประเภทที่ไม่บังคับรูป (Near miss / PSIF (Behavior)) โชว์เฉพาะช่องที่มีรูปจริง —
+     ไม่งั้นเรื่องที่ Safety เปลี่ยนประเภทลงมาจะขึ้น "ยังไม่มีรูปหลัง" ค้าง ทั้งที่ประเภทนี้ไม่ต้องมี */
+  const cells = rule ? cell(before,'b','ก่อน')+cell(after,'a','หลัง')
+    : (before.length?cell(before,'b','ก่อน'):'')+(after.length?cell(after,'a','หลัง'):'');
+  return `<div class="ba-thumbs">${cells}</div>`;
 }
 /* วันที่บนการ์ดหน้าติดตาม (2026-08-02 ตามคำขอ):
    บันทึกเข้าระบบ → วันที่เข้า · เสร็จ → วันที่เสร็จ · Safety/กำลังดำเนินการ/ไม่เข้าข่าย/ซ้ำ → ไม่แสดง */
@@ -1594,6 +1647,11 @@ function dateBadge(it){
 }
 /* ป้าย "ขาดรูป" บนการ์ด — บอกว่าขาดรูปไหน (ก่อน/หลัง) เพื่อให้ไล่เก็บย้อนหลังได้ */
 function photoGapBadge(it){
+  if(isReturned(it)){                                       // v2.4 — ป้ายบอกว่าต้องไปถ่ายอะไรมาใหม่
+    const b=returnBlockers(it);
+    return b.length ? `<span class="badge b-ret">📷 ต้องถ่ายรูป${b.map(k=>PHOTO_LBL[k]).join(' + ')}ใหม่</span>`
+                    : '<span class="badge b-green">✅ รูปครบแล้ว — รอกดส่งกลับเข้าระบบ</span>';
+  }
   const m=needsPhotoFix(it)?missingPhotos(it):[];
   if(!m.length) return '';
   return `<span class="badge b-red">📷 ขาดรูป${m.map(k=>PHOTO_LBL[k]).join(' + ')}</span>`;
@@ -1625,6 +1683,15 @@ function openItem(id){
   const canSetNo = !canIssueNo && isSafety() && it.status==='safety' && it.safety_result==='approved';
   const canClose = (it.status==='inprogress') && (it.reporter_id===CURRENT_USER.id || canManage(it));
   let actions='';
+  /* v2.4: เรื่องที่ถูกส่งกลับ — งานอื่นถูกบล็อกโดยปริยาย (canSafety/canIssueNo/canClose ต้องการ status อื่น)
+     เหลือแค่ 2 ทาง: ผู้รายงานแก้ไขแล้วส่งกลับเข้าระบบ · หรือ Safety ยกเลิกการส่งกลับ */
+  if(isReturned(it)){
+    const blk=returnBlockers(it);
+    if(blk.length) actions+=`<div class="note" style="margin-bottom:8px">📷 ยังขาด<b>รูป${blk.map(k=>PHOTO_LBL[k]).join(' และ รูป')}</b> —
+      แตะปุ่มใต้ช่องรูปด้านบนเพื่อถ่าย/เลือกรูป ระบบจะส่งกลับเข้าคิว Safety ให้อัตโนมัติ</div>`;
+    else if(canDoResubmit(it)) actions+=`<button class="btn btn-green btn-block" onclick="resubmitItem(${id})">📨 ส่งกลับเข้าระบบให้ Safety ตรวจอีกครั้ง</button>`;
+    if(isSafety()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="cancelReturn(${id})">↪️ ยกเลิกการส่งกลับ (Safety)</button>`;
+  }
   if(canSafety) actions+=`<div class="note" style="margin-bottom:8px">Safety พิจารณา — เลือก 1 สถานะ</div>
     <button class="btn btn-green btn-block" onclick="safetyAct(${id},'approved')">✅ อนุมัติ</button>
     <button class="btn btn-orange btn-block" style="margin-top:8px" onclick="safetyAct(${id},'not_cardinal')">⚠️ ไม่เข้าข่าย PSIF Cardinal rules</button>
@@ -1642,11 +1709,14 @@ function openItem(id){
   }
   if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน${catIsCon(it.category)?' (แนบรูปหลังแก้ไข)':''}</button>`;
   if(isSafety()||canManage(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
+  // v2.4: ส่งกลับด้วยตัวเอง — ใช้ได้ทุกเหตุผล (รูปเบลอ · เนื้อหาไม่ชัด · ข้อมูลไม่ครบ) ไม่ใช่แค่ตอนเปลี่ยนประเภท
+  if(canReturnItem(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--rose);border-color:var(--rose-bd)" onclick="openReturnItem(${id})">↩️ ส่งกลับให้ผู้รายงานแก้ไข</button>`;
   if(isSuperAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
 
   openModal('รายละเอียด PSIF', `
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">${statusBadge(it)}<span class="sub">${esc(it.created_at||'')}</span></div>
     ${renderStepper(it)}
+    ${returnNote(it)}
     <h3 style="margin:12px 0 6px">${esc(it.title)}</h3>
     <div class="kv"><span class="k">No.PSIF</span><span>${esc(it.no||'—')}</span></div>
     <div class="kv"><span class="k">วันที่บันทึกเข้าระบบ</span><span>${fmtDay(it.created_at)||'—'}</span></div>
@@ -1660,8 +1730,8 @@ function openItem(id){
     ${it.suggestion?`<div class="kv"><span class="k">ข้อเสนอแนะ</span><span>${esc(it.suggestion)}</span></div>`:''}
     ${it.safety_note?`<div class="kv"><span class="k">หมายเหตุ Safety</span><span>${esc(it.safety_note)}</span></div>`:''}
     ${it.done_detail?`<div class="kv"><span class="k">สรุปการแก้ไข</span><span>${esc(it.done_detail)}</span></div>`:''}
-    <h4 style="margin:16px 0 6px">📷 เปรียบเทียบก่อน / หลังแก้ไข</h4>
-    ${photoGapNote(it)}
+    <h4 style="margin:16px 0 6px">📷 ${photoRuleOn(it)?'เปรียบเทียบก่อน / หลังแก้ไข':'รูปประกอบ'}</h4>
+    ${photoGapNote(it)}${optionalPhotoNote(it)}
     <div class="ba-compare">
       <div class="col">
         <div class="hd b">📷 ก่อนแก้ไข</div>
@@ -1679,6 +1749,27 @@ function openItem(id){
 }
 /* ---- แนบรูปย้อนหลัง (2026-08-10): รายการ PSIF (Con) ที่หลุดเข้าระบบมาโดยไม่มีรูป ----
    ปิดงานไม่ถูกบล็อก (รูป "ก่อนแก้ไข" ย้อนหลังบางทีก็หาไม่ได้แล้ว) แต่ระบบจะเตือนจนกว่าจะแนบครบ */
+/* กล่องแจ้ง "ถูกส่งกลับ" — ขึ้นบนสุดของหน้ารายละเอียด ให้เห็นก่อนอย่างอื่น (v2.4) */
+function returnNote(it){
+  if(!isReturned(it)) return '';
+  const blk=returnBlockers(it);
+  const mine=it.reporter_id===(CURRENT_USER&&CURRENT_USER.id);
+  const todo = blk.length
+    ? `📷 ${mine?'กรุณาไปถ่าย':'ผู้รายงานต้องไปถ่าย'}<b>รูป${blk.map(k=>PHOTO_LBL[k]).join(' และ รูป')}</b>ที่จุดเดิม แล้วแนบเข้ามาใหม่`
+    : '✅ แนบรูปครบแล้ว — กดปุ่ม “ส่งกลับเข้าระบบ” ด้านล่าง เพื่อให้ Safety ตรวจอีกครั้ง';
+  return `<div class="warn">↩️ <b>Safety ส่งเรื่องนี้กลับให้แก้ไข</b>
+    ${it.return_reason?`<br>📝 ${esc(it.return_reason)}`:''}
+    <br>${todo}
+    <br><span style="opacity:.85">เรื่องนี้จะหยุดอยู่ตรงนี้ (อนุมัติ / ออกเลข No. / ปิดงานไม่ได้) จนกว่าจะส่งกลับเข้าระบบ</span></div>`;
+}
+/* ประเภทที่ไม่บังคับรูป แต่มีรูปติดมาแล้ว — เกิดตอน Safety เปลี่ยน PSIF (Con) → Near miss/Behavior
+   รูปเดิมไม่ถูกลบ แต่ต้องบอกให้ชัดว่าไม่ต้องตามหา "รูปหลัง" อีกแล้ว (v2.4) */
+function optionalPhotoNote(it){
+  if(!hasOptionalPhotos(it)) return '';
+  return `<div class="note">📎 ประเภท <b>${esc(catLabel(it.category))}</b> ไม่บังคับรูป —
+    รูปที่แนบไว้ตอนบันทึกถูกเก็บไว้เป็น<b>รูปประกอบ</b> ${hasPhoto(it,'after')?'':'ไม่ต้องมีรูปหลังแก้ไขก็ปิดงานได้'}
+    (จะแนบเพิ่มเองก็ได้ ไม่บังคับ)</div>`;
+}
 function photoGapNote(it){
   const m=needsPhotoFix(it)?missingPhotos(it):[];
   if(!m.length) return '';
@@ -1687,19 +1778,32 @@ function photoGapNote(it){
     ${canAddPhoto(it)?'· แตะปุ่มใต้ช่องที่ขาดเพื่อแนบย้อนหลัง':'· โปรดแจ้งผู้รายงานหรือ Admin แผนกให้แนบเพิ่ม'}</div>`;
 }
 function addPhotoBtn(it,kind){
-  if(!needsPhotoFix(it) || !missingPhotos(it).includes(kind) || !canAddPhoto(it)) return '';
-  return `<button class="btn btn-line btn-sm" style="margin-top:8px;width:100%" onclick="openAddPhoto(${it.id},'${kind}')">📷 แนบรูป${PHOTO_LBL[kind]}ย้อนหลัง</button>`;
+  if(!canAddPhoto(it)) return '';
+  const btn=(cls,txt)=>`<button class="btn ${cls} btn-sm" style="margin-top:8px;width:100%" onclick="openAddPhoto(${it.id},'${kind}')">${txt}</button>`;
+  // 1) เรื่องที่ถูกส่งกลับ — รูปนี้คือสิ่งที่บล็อกงานอยู่ ต้องเด่นที่สุด (v2.4)
+  if(isReturned(it)) return returnBlockers(it).includes(kind)
+    ? btn('btn-orange',`📷 ถ่ายรูป${PHOTO_LBL[kind]}ใหม่ แล้วส่งกลับเข้าระบบ`) : '';
+  // 2) PSIF (Con) ที่รูปขาด — ตามเก็บย้อนหลัง (v2.1)
+  if(needsPhotoFix(it) && missingPhotos(it).includes(kind)) return btn('btn-line',`📷 แนบรูป${PHOTO_LBL[kind]}ย้อนหลัง`);
+  // 3) ประเภทที่ไม่บังคับรูป แต่มีรูปอีกฝั่งแล้ว — แนบเพิ่มได้ตามสมัครใจ ให้เห็นคู่ก่อน/หลัง (v2.4)
+  if(hasOptionalPhotos(it) && !hasPhoto(it,kind)) return btn('btn-line',`📎 แนบรูป${PHOTO_LBL[kind]} (ไม่บังคับ)`);
+  return '';
 }
 let addPhotoCtx=null;   // {id,kind,file}
 function openAddPhoto(id,kind){
   const it=state.items.find(x=>x.id==id); if(!it) return;
   if(!canAddPhoto(it)){ toast('ไม่มีสิทธิ์แนบรูปของรายการนี้','red'); return; }
   addPhotoCtx={id,kind,file:null};
-  openModal(`📷 แนบรูป${PHOTO_LBL[kind]} (ย้อนหลัง)`, `
-    <div class="note" style="margin-bottom:8px">รายการ <b>${esc(it.no||it.title||'')}</b><br>
-      ${kind==='before'
-        ?'ใช้รูปที่ถ่ายไว้ <b>ตอนก่อนแก้ไข</b> เท่านั้น (เช่นในคลังรูปมือถือ/แชท) — ถ้าไม่มีจริง ๆ ให้ระบุเหตุผลไว้ในสรุปการแก้ไข'
-        :'ใช้รูป <b>หลังแก้ไขเสร็จ</b> ของจุดเดียวกับรูปก่อนแก้ไข'}</div>
+  const back=isReturned(it);   // v2.4 — โหมด "ถ่ายมาใหม่ตามที่ Safety ส่งกลับ"
+  const hint = back
+    ? (kind==='before'
+        ? 'Safety ส่งกลับเพราะประเภท <b>PSIF (Con)</b> ต้องมีรูปก่อนแก้ไข — ไปถ่าย<b>จุดเดิมที่ยังไม่ได้แก้</b> แล้วแนบเข้ามา<br>พอแนบเสร็จ ระบบจะส่งเรื่องกลับเข้าคิว Safety ให้อัตโนมัติ'
+        : 'ถ่ายรูป <b>หลังแก้ไขเสร็จ</b> ของจุดเดียวกับรูปก่อนแก้ไข — พอแนบเสร็จระบบจะส่งกลับเข้าคิว Safety ให้อัตโนมัติ')
+    : (kind==='before'
+        ? 'ใช้รูปที่ถ่ายไว้ <b>ตอนก่อนแก้ไข</b> เท่านั้น (เช่นในคลังรูปมือถือ/แชท) — ถ้าไม่มีจริง ๆ ให้ระบุเหตุผลไว้ในสรุปการแก้ไข'
+        : 'ใช้รูป <b>หลังแก้ไขเสร็จ</b> ของจุดเดียวกับรูปก่อนแก้ไข');
+  openModal(back?`📷 ถ่ายรูป${PHOTO_LBL[kind]}ใหม่`:`📷 แนบรูป${PHOTO_LBL[kind]} (ย้อนหลัง)`, `
+    <div class="note" style="margin-bottom:8px">รายการ <b>${esc(it.no||it.title||'')}</b><br>${hint}</div>
     <div class="dropzone" id="apZone" onclick="triggerPhoto('apPhotoInput',false)">📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ</div>
     <div class="row" style="margin-top:8px">
       <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('apPhotoInput',true)">📷 ถ่ายรูป</button>
@@ -1725,12 +1829,60 @@ async function doAddPhoto(){
   const {id,kind,file}=addPhotoCtx;
   try{
     const ph=await uploadPhoto(file,kind,id);
-    await patchPsif(id,{},[ph]);
+    let upd=await patchPsif(id,{},[ph]);
+    /* v2.4: เรื่องที่ถูกส่งกลับ — พอรูปที่ขาดครบแล้ว ส่งกลับเข้าคิว Safety ให้เลย
+       (การแนบรูปคือ "การแก้ไข" ที่ Safety ขอ ไม่ต้องให้พนักงานกดอีกปุ่ม) */
+    let sent=false;
+    if(canResubmit(upd)){
+      try{ upd=await patchPsif(id,{status:'recorded',return_reason:''}); sent=true; }
+      catch(e){ toast('แนบรูปแล้ว แต่ส่งกลับเข้าระบบไม่สำเร็จ: '+e.message,'orange'); }
+    }
     addPhotoCtx=null; closeModal();
-    toast(`✅ แนบรูป${PHOTO_LBL[kind]}แล้ว`,'green');
+    toast(sent?`✅ แนบรูป${PHOTO_LBL[kind]}แล้ว — ส่งกลับให้ Safety ตรวจอีกครั้งแล้ว`:`✅ แนบรูป${PHOTO_LBL[kind]}แล้ว`,'green');
     refreshAll(); openItem(id);
   }catch(e){ toast('แนบรูปไม่สำเร็จ: '+e.message,'red'); }
   finally{ _addPhotoBusy=false; const b=$('apSaveBtn'); if(b){ b.disabled=false; b.textContent='💾 บันทึกรูป'; } }
+}
+/* ====================================================================
+ *  v2.4 — ส่งกลับให้ผู้รายงานแก้ไข (returned) และเส้นทางกลับเข้าระบบ
+ *  ส่งกลับ:  Safety/Super Admin  →  status='returned' + return_reason (รีเซ็ตผลตรวจเป็น pending)
+ *  กลับเข้า: ผู้รายงาน/Admin แผนก/Safety  →  status='recorded' (ต้องแนบรูปที่ขาดครบก่อน — backend เช็คซ้ำ)
+ * ==================================================================== */
+function openReturnItem(id){
+  const it=state.items.find(x=>x.id==id); if(!it) return;
+  const def = (catIsCon(it.category)&&!hasPhoto(it,'before')) ? RETURN_REASON_CON : '';
+  openModal('↩️ ส่งกลับให้ผู้รายงานแก้ไข', `
+    <div class="note" style="margin-bottom:8px">เรื่องจะถูกส่งกลับไปที่ <b>${esc(it.reporter_name||it.reporter_id)}</b> พร้อมแจ้งเตือน
+      — และจะ<b>หยุดเดินงาน</b> (อนุมัติ / ออกเลข / ปิดงานไม่ได้) จนกว่าผู้รายงานจะแก้ไขและส่งกลับเข้าระบบ</div>
+    <label class="fl">เหตุผล / สิ่งที่ต้องแก้ <span class="req">*</span></label>
+    <textarea class="inp" id="retReason" placeholder="เช่น ต้องถ่ายรูปก่อนแก้ไขมาใหม่ · รูปเบลอมองไม่เห็นจุดเสี่ยง · เนื้อหาไม่ตรงกับที่พบจริง">${esc(def)}</textarea>
+    <button class="btn btn-orange btn-block" style="margin-top:14px" onclick="doReturnItem(${id})">↩️ ยืนยันส่งกลับ</button>`);
+}
+async function doReturnItem(id){
+  const reason=$('retReason').value.trim();
+  if(!reason){ toast('กรอกเหตุผลที่ส่งกลับ','red'); return; }
+  try{
+    // รีเซ็ตผลตรวจกลับเป็น pending — เนื้อหา/ประเภทกำลังจะเปลี่ยน Safety ต้องตรวจใหม่อยู่ดี
+    await patchPsif(id,{status:'returned',return_reason:reason,safety_result:'pending',safety_note:'',
+      safety_by:CURRENT_USER.id,safety_at:new Date().toISOString().slice(0,19).replace('T',' ')});
+    toast('↩️ ส่งกลับให้ผู้รายงานแล้ว — แจ้งเตือนเรียบร้อย','orange'); closeModal(); refreshAll();
+  }catch(e){ toast('ส่งกลับไม่สำเร็จ: '+e.message,'red'); }
+}
+async function resubmitItem(id){
+  const it=state.items.find(x=>x.id==id); if(!it) return;
+  if(!canResubmit(it)){ toast(`ยังขาดรูป${returnBlockers(it).map(k=>PHOTO_LBL[k]).join(' + ')} — แนบให้ครบก่อน`,'red'); return; }
+  try{
+    await patchPsif(id,{status:'recorded',return_reason:''});
+    toast('📨 ส่งกลับเข้าระบบแล้ว — รอ Safety ตรวจอีกครั้ง','green'); closeModal(); refreshAll();
+  }catch(e){ toast('ส่งกลับเข้าระบบไม่สำเร็จ: '+e.message,'red'); }
+}
+/* Safety กดส่งกลับผิดเรื่อง / ผู้รายงานหารูปเดิมเจอแล้วส่งให้ทางอื่น — ดึงกลับเข้าคิวตรวจได้เอง */
+async function cancelReturn(id){
+  if(!confirm('ยกเลิกการส่งกลับ และดึงเรื่องกลับเข้าคิว Safety?')) return;
+  try{
+    await patchPsif(id,{status:'recorded',return_reason:''});
+    toast('↪️ ยกเลิกการส่งกลับแล้ว','green'); closeModal(); refreshAll();
+  }catch(e){ toast('ยกเลิกไม่สำเร็จ: '+e.message,'red'); }
 }
 async function safetyAct(id,result){
   let note='';
@@ -1775,8 +1927,11 @@ function openClose(id){
   const it=state.items.find(x=>x.id==id);
   closingId=id; closePhoto=null;
   closeNeedsPhoto=catIsCon(it&&it.category);   // ข้อ 2: รูปหลังแก้ไขบังคับเฉพาะ PSIF (Con) — ประเภทอื่นซ่อนช่องอัปโหลด
-  const photoPart=closeNeedsPhoto?`
-    <label class="fl">รูปหลังแก้ไข <span class="req">* (บังคับ)</span></label>
+  /* v2.4: ประเภทที่ไม่บังคับรูป แต่มีรูป "ก่อนแก้ไข" ติดมาแล้ว (เคยเป็น PSIF (Con) แล้ว Safety เปลี่ยนประเภท)
+     → เปิดช่องแนบรูปหลังไว้ให้ "ตามใจ" จะได้เห็นคู่ก่อน/หลังครบ แต่ไม่บล็อกการปิดงาน */
+  const closeOptPhoto = !closeNeedsPhoto && hasPhoto(it,'before') && !hasPhoto(it,'after');
+  const photoPart=(closeNeedsPhoto||closeOptPhoto)?`
+    <label class="fl">รูปหลังแก้ไข ${closeNeedsPhoto?'<span class="req">* (บังคับ)</span>':'<span style="color:var(--muted2);font-weight:600">(ไม่บังคับ — แนบไว้ให้เห็นคู่ก่อน/หลัง)</span>'}</label>
     <div class="dropzone" id="closeZone" onclick="triggerPhoto('closePhotoInput',false)">📷 ถ่ายรูป หรือ เลือกรูปจากมือถือ</div>
     <div class="row" style="margin-top:8px">
       <button type="button" class="btn btn-line btn-sm" style="flex:1" onclick="triggerPhoto('closePhotoInput',true)">📷 ถ่ายรูป</button>
@@ -1805,7 +1960,7 @@ async function doClose(){
   _closingBusy=true;
   const cb=$('closeBtn'); if(cb){ cb.disabled=true; cb.textContent='⏳ กำลังปิดงาน...'; }
   try{
-    const photos=(closeNeedsPhoto&&closePhoto)?[await uploadPhoto(closePhoto,'after',closingId)]:undefined;
+    const photos=closePhoto?[await uploadPhoto(closePhoto,'after',closingId)]:undefined;
     await patchPsif(closingId,{status:'done',done_by:CURRENT_USER.id,done_at:new Date().toISOString().slice(0,19).replace('T',' '),done_detail:$('closeDetail').value.trim()},photos);
     toast('✅ ปิดงานเรียบร้อย','green'); closeModal(); refreshAll();
   }catch(e){ toast('ปิดงานไม่สำเร็จ: '+e.message,'red'); }
@@ -1831,17 +1986,31 @@ function openEditItem(id){
     <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEditItem(${id})">💾 บันทึกการแก้ไข</button>`);
 }
 async function saveEditItem(id){
+  const it=state.items.find(x=>x.id==id);
   const title=$('edTitle').value.trim();
   if(!title){ toast('กรอกหัวข้อเรื่อง','red'); return; }
   // No.PSIF ในหน้าแก้ไขไม่บังคับ แต่ถ้ากรอกต้องถูกรูปแบบ
   const noRaw=$('edNo').value.trim(); let noVal='';
   if(noRaw){ const chk=validatePsifNo(noRaw); if(!chk.ok){toast(chk.msg,'red');return;} noVal=chk.value; }
+  const newCat=$('edCat').value;
+  /* v2.4 ข้อ 1 — เปลี่ยนประเภทเป็น PSIF (Con) แล้วไม่มีรูป "ก่อนแก้ไข":
+     ส่งกลับให้ผู้รายงานไปถ่ายมาใหม่ในคำสั่งเดียวกัน จะได้ไม่มีเรื่องเดินต่อทั้งที่รูปไม่ครบ
+     (ทำได้เฉพาะ Safety/Super Admin — ถ้า Admin แผนก เป็นคนแก้ backend จะบังคับส่งกลับให้เอง) */
+  const back = isSafety() && it && shouldReturnForPhoto(it,newCat);
+  /* v2.4 ข้อ 2 — เปลี่ยนจาก PSIF (Con) → Near miss/Behavior: รูปเดิมไม่ต้องลบ กลายเป็นรูปประกอบ */
+  const downgraded = it && catIsCon(it.category) && !catIsCon(newCat) && hasPhoto(it,'before');
+  const patch={title,no:noVal,category:newCat,detail:$('edDetail').value.trim(),
+    suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()};
+  if(back) Object.assign(patch,{status:'returned',return_reason:RETURN_REASON_CON,safety_result:'pending',safety_note:'',
+    safety_by:CURRENT_USER.id,safety_at:new Date().toISOString().slice(0,19).replace('T',' ')});
   try{
-    const upd=await patchPsif(id,{title,no:noVal,category:$('edCat').value,detail:$('edDetail').value.trim(),
-      suggestion:$('edSuggest').value.trim(),area_id:$('edArea').value.trim(),machine:$('edMachine').value.trim()});
+    const upd=await patchPsif(id,patch);
     closeModal(); refreshAll();
-    // เปลี่ยนประเภทมาเป็น PSIF (Con) แล้วรูปไม่ครบ — เตือนทันที (กฎรูปผูกกับประเภท)
-    if(needsPhotoFix(upd)) toast('✅ แก้ไขแล้ว — แต่ PSIF (Con) ยังขาดรูป กรุณาแนบย้อนหลังในหน้ารายละเอียด','orange');
+    if(isReturned(upd) && !isReturned(it))
+      toast('↩️ เปลี่ยนเป็น PSIF (Con) แล้ว — ส่งกลับให้ผู้รายงานไปถ่ายรูปก่อนแก้ไขมาใหม่','orange');
+    else if(downgraded) toast('✅ เปลี่ยนประเภทแล้ว — รูปที่แนบไว้เก็บเป็นรูปประกอบ ประเภทนี้ไม่บังคับรูปหลัง','green');
+    // เปลี่ยนประเภทมาเป็น PSIF (Con) แล้วรูปไม่ครบ (เรื่องที่เริ่มทำ/ปิดงานไปแล้ว — ส่งกลับไม่ได้)
+    else if(needsPhotoFix(upd)) toast('✅ แก้ไขแล้ว — แต่ PSIF (Con) ยังขาดรูป กรุณาแนบย้อนหลังในหน้ารายละเอียด','orange');
     else toast('✅ แก้ไขแล้ว — แจ้งเตือนผู้รายงานแล้ว','green');
   }catch(e){ toast('แก้ไขไม่สำเร็จ: '+e.message,'red'); }
 }
@@ -1854,7 +2023,8 @@ let safetyFilter='recorded';
 function safetyItems(o={}){
   const st = o.status!==undefined?o.status:safetyFilter;
   const cat= o.cat!==undefined?o.cat:safetyCat;
-  let arr = st==='recorded'? state.items.filter(i=>i.status==='recorded') : state.items.filter(i=>safetyKind(i)===st);
+  // 'recorded'/'returned' กรองด้วย status ตรง ๆ · ที่เหลือกรองด้วยผลตรวจ (safetyKind)
+  let arr = (st==='recorded'||st==='returned')? state.items.filter(i=>i.status===st) : state.items.filter(i=>safetyKind(i)===st);
   if(cat!=='all') arr=arr.filter(i=>matchCat(i,cat));
   return arr;
 }
@@ -1864,7 +2034,7 @@ function renderSafety(){
     : '⚠️ เฉพาะเจ้าหน้าที่ Safety/Admin จึงจะอนุมัติได้ (คุณดูได้อย่างเดียว)';
   // ตัวกรองประเภท (2026-08-10) — นับเฉพาะในสถานะที่เลือกอยู่
   $('safetyCatChips').innerHTML=catChipsHtml(safetyItems({cat:'all'}),safetyCat,'setSafetyCat');
-  const chips=[['recorded','รออนุมัติ'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
+  const chips=[['recorded','รออนุมัติ'],['returned','↩️ ส่งกลับให้แก้ไข'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
   $('safetyChips').innerHTML=chips.map(([k,l])=>{
     const n=safetyItems({status:k}).length;
     return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';safetyPage=1;renderSafety()">${l} (${n})</button>`;
@@ -2018,7 +2188,7 @@ function renderDash(){
   // ข้อ 3: Admin แผนก เห็นเฉพาะแผนกตัวเอง (backend scope แล้ว — กรองซ้ำกันเหนียว)
   let items=state.items.filter(i=>i.year==y);
   if(isDeptAdmin()) items=items.filter(i=>(i.vsm||'').trim()===myVsm());
-  const c={recorded:0,safety:0,inprogress:0,done:0,not_cardinal:0,duplicate:0,rejected:0};
+  const c={recorded:0,returned:0,safety:0,inprogress:0,done:0,not_cardinal:0,duplicate:0,rejected:0};
   items.forEach(i=>{ const s=stageOf(i); c[s]=(c[s]||0)+1; });
   const total=items.length;
   // ข้อ 4: KPI "นับผลงาน" = Safety อนุมัติ + ดำเนินการจนจบ เท่านั้น (ไม่ใช่แค่ status done)
@@ -2027,9 +2197,10 @@ function renderDash(){
   /* 2026-08-07 (v2.0): ไทล์ "ส่งแล้ว" แยกเป็น 2 ชั้น เพื่อไม่ให้ยอดรวมถูกดันด้วยเรื่องที่ยังไม่ผ่านเกณฑ์
      ตัวหลัก (subMain) = Safety อนุมัติแล้ว → กำลังทำ + จบงาน   ← ตัวเลขใหญ่ + ใช้คิด % ของเป้าหมาย
      ตัวรอง (subSide)  = รอ Safety + ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ) ← ตัวเล็ก ไม่นับเข้าเป้าหมาย */
-  const pipeC={counted:0,work:0,wait:0,fail:0};
+  const pipeC={counted:0,work:0,wait:0,back:0,fail:0};
   items.forEach(i=>{ pipeC[pipeKind(i)]++; });
-  const subMain=pipeC.counted+pipeC.work, subSide=pipeC.wait+pipeC.fail;
+  // v2.4: เรื่องที่ "ส่งกลับให้แก้ไข" ยังไม่ผ่าน Safety → อยู่ตัวรองเหมือนเรื่องที่รอตรวจ
+  const subMain=pipeC.counted+pipeC.work, subSide=pipeC.wait+pipeC.back+pipeC.fail;
   _dashSubm={...pipeC,main:subMain,side:subSide,total};   // ใช้ตอนแตะไทล์ → popup คำอธิบาย
   const target=targetFor(y);
   const empCount=visibleEmployees().length||1;
@@ -2073,6 +2244,7 @@ function renderDash(){
     CAT_KEYS.map(k=>({label:catLabel(k),target:catTarget,actual:catSub[k]})));
   const statusCard=`<div class="card"><h3>📊 สถานะงาน</h3>${statusDonut([
       {label:'รอ Safety',   val:c.recorded,   color:'var(--blue)'},
+      {label:'ส่งกลับให้แก้ไข', val:c.returned,  color:'var(--rose)'},
       {label:'Safety แล้ว', val:c.safety,     color:'var(--purple)'},
       {label:'กำลังทำ',      val:c.inprogress, color:'var(--amber)'},
       {label:'เสร็จ',        val:c.done,       color:'var(--green)'},
@@ -2104,6 +2276,7 @@ function openSubmitInfo(){
     ${row('🏁','Safety อนุมัติ · จบงานแล้ว',d.counted,'นับผลงานเต็ม')}
     <div style="font-weight:700;font-size:12.5px;margin:10px 0 2px">➖ ตัวรอง — <b>ไม่</b>นับเข้าเป้าหมาย</div>
     ${row('⏳','รอ Safety พิจารณา',d.wait,'รอผล')}
+    ${d.back?row('↩️','ส่งกลับให้ผู้รายงานแก้ไข',d.back,'รอแก้ไข'):''}
     ${row('✖️','ไม่ผ่าน (ซ้ำ/ไม่เข้าข่าย/ไม่อนุมัติ)',d.fail,'ไม่นับ')}
     <div class="warn" style="margin-top:10px">⏳ ถ้า Safety อนุมัติเรื่องที่รออยู่ทั้ง <b>${d.wait.toLocaleString()}</b> เรื่อง
       ตัวหลักจะขยับเป็น <b>${(d.main+d.wait).toLocaleString()}</b> เรื่อง</div>
@@ -2111,7 +2284,7 @@ function openSubmitInfo(){
 }
 
 /* ของฉัน — ดูเฉพาะของตัวเอง (แทนการ์ด "ล่าสุด" เดิม) */
-let _myPipe={wait:[],work:[],fail:[]};
+let _myPipe={wait:[],work:[],back:[],fail:[]};
 function renderMyDash(y){
   const mine=state.items.filter(i=>i.reporter_id===CURRENT_USER.id&&i.year==y);
   // ข้อ 4: เป้า/โบนัสนับเฉพาะเรื่องที่ Safety อนุมัติ + จบงาน
@@ -2120,25 +2293,27 @@ function renderMyDash(y){
   const done=counted.length, bonus=bonusFromCats(cat);
   /* v1.9: แยกเรื่องที่ส่งแล้วแต่ยังไม่นับ เป็น 3 กลุ่ม (รอ Safety / กำลังดำเนินการ / ไม่ผ่าน)
      พนักงานเคยสับสนว่า "ลงไปแล้วทำไมตัวเลขไม่ขึ้น" — ต้องเห็นว่าค้างอยู่ขั้นไหน และถ้าผ่านจะได้กี่เรื่อง */
-  const pipe={wait:newCatMap(),work:newCatMap(),fail:newCatMap()};
-  _myPipe={wait:[],work:[],fail:[]};
+  const pipe={wait:newCatMap(),work:newCatMap(),back:newCatMap(),fail:newCatMap()};
+  _myPipe={wait:[],work:[],back:[],fail:[]};
   mine.forEach(i=>{ const g=pipeKind(i); if(g==='counted') return;
     _myPipe[g].push(i); if(pipe[g][i.category]!=null) pipe[g][i.category]++; });
-  const nWait=_myPipe.wait.length, nWork=_myPipe.work.length, nFail=_myPipe.fail.length;
-  // ถ้าเรื่องที่ยังค้าง (รอ Safety + กำลังดำเนินการ) ผ่านครบทั้งหมด จะนับได้กี่เรื่อง / โบนัสเท่าไร
-  const potCat=newCatMap(); CAT_KEYS.forEach(k=>potCat[k]=cat[k]+pipe.wait[k]+pipe.work[k]);
-  const potDone=done+nWait+nWork, potBonus=bonusFromCats(potCat);
+  const nWait=_myPipe.wait.length, nWork=_myPipe.work.length, nFail=_myPipe.fail.length, nBack=_myPipe.back.length;
+  // ถ้าเรื่องที่ยังค้าง (รอ Safety + กำลังดำเนินการ + ส่งกลับให้แก้ไข) ผ่านครบทั้งหมด จะนับได้กี่เรื่อง / โบนัสเท่าไร
+  const potCat=newCatMap(); CAT_KEYS.forEach(k=>potCat[k]=cat[k]+pipe.wait[k]+pipe.work[k]+pipe.back[k]);
+  const potDone=done+nWait+nWork+nBack, potBonus=bonusFromCats(potCat);
   _myBonusCats=cat;   // ใช้ตอนแตะกล่องโบนัส → popup คำอธิบาย (openBonusInfo)
   _myPendCats={wait:pipe.wait,work:pipe.work};
 
   const seg=n=>Math.max(0,Math.min(100,Math.round(n/CAT_TARGET*100)));
   const catBar=k=>{
-    const v=cat[k], w=pipe.wait[k], p=pipe.work[k], f=pipe.fail[k], ok=v>=CAT_TARGET, pend=w+p;
-    const wDone=seg(v), wWork=Math.min(100-wDone,seg(p)), wWait=Math.min(100-wDone-wWork,seg(w));
+    const v=cat[k], w=pipe.wait[k], p=pipe.work[k], f=pipe.fail[k], b=pipe.back[k], ok=v>=CAT_TARGET, pend=w+p+b;
+    // เรื่องที่ถูกส่งกลับก็ยัง "ค้างอยู่" เหมือนรอ Safety — รวมไว้ในแถบลายเดียวกัน แต่แยกป้ายให้เห็นว่าต้องลงมือ
+    const wDone=seg(v), wWork=Math.min(100-wDone,seg(p)), wWait=Math.min(100-wDone-wWork,seg(w+b));
     const tag=(cls,txt)=>`<span class="ptag ${cls}">${txt}</span>`;
     const tags=[
       w?tag('t-wait',`⏳ รอ Safety ${w} เรื่อง`):'',
       p?tag('t-work',`🔧 กำลังดำเนินการ ${p} เรื่อง`):'',
+      b?tag('t-back',`↩️ ส่งกลับให้แก้ไข ${b} เรื่อง`):'',
       f?tag('t-fail',`✖️ ไม่ผ่าน ${f} เรื่อง`):'',
       pend?tag('t-gain',`🎯 ถ้าผ่านครบ → ${potCat[k]}/${CAT_TARGET}${(potCat[k]>=CAT_TARGET&&!ok)?' ครบเป้า':''}`):'',
     ].join('');
@@ -2155,8 +2330,8 @@ function renderMyDash(y){
   };
   const pipeTag=(g,n)=>{ const I=PIPE_INFO[g];
     return `<button class="ptag ${I.cls}" onclick="openMyPipe('${g}')">${I.ic} ${I.label} <b>${n}</b> เรื่อง ›</button>`; };
-  const pipeRow=(nWait||nWork||nFail)?`<div class="pipe">
-      ${nWait?pipeTag('wait',nWait):''}${nWork?pipeTag('work',nWork):''}${nFail?pipeTag('fail',nFail):''}
+  const pipeRow=(nWait||nWork||nFail||nBack)?`<div class="pipe">
+      ${nBack?pipeTag('back',nBack):''}${nWait?pipeTag('wait',nWait):''}${nWork?pipeTag('work',nWork):''}${nFail?pipeTag('fail',nFail):''}
     </div>`:'';
   const listHtml=mine.length?mine.map(cardHtml).join(''):'<div class="empty"><span class="ic">📭</span>คุณยังไม่มีเรื่องในปีนี้ — แตะ ✏️ เพื่อบันทึก</div>';
   $('dashBody').innerHTML=`
@@ -2181,6 +2356,7 @@ function openMyPipe(g){
   const note={
     wait:'เรื่องเหล่านี้เข้าระบบแล้ว กำลังรอเจ้าหน้าที่ Safety พิจารณา — <b>ยังไม่ถูกนับผลงาน</b> จนกว่าจะอนุมัติและดำเนินการจนจบ',
     work:'Safety <b>อนุมัติแล้ว</b> อยู่ระหว่างดำเนินการแก้ไข — จะถูกนับผลงานเมื่อ<b>ปิดงาน</b>เรียบร้อย',
+    back:'Safety <b>ส่งกลับมาให้คุณแก้ไข</b> (ส่วนใหญ่คือให้ไป<b>ถ่ายรูปก่อนแก้ไข</b>มาใหม่ เพราะประเภทถูกเปลี่ยนเป็น PSIF (Con)) — เรื่องจะหยุดอยู่ตรงนี้จนกว่าคุณจะแนบรูปแล้วส่งกลับเข้าระบบ แตะที่เรื่องเพื่อดูว่าต้องแก้อะไร',
     fail:'Safety พิจารณาแล้ว<b>ไม่ผ่าน</b> (ซ้ำ / ไม่เข้าข่าย PSIF Cardinal rules / ไม่อนุมัติ) — ไม่นับเป็นผลงาน แต่ยังเก็บไว้ให้ดูย้อนหลังได้',
   }[g]||'';
   const rows=arr.map(it=>`<div class="pl-row" onclick="openItem(${it.id})">
@@ -2188,7 +2364,7 @@ function openMyPipe(g){
         <span class="badge b-gray">🏷️ ${esc(catLabel(it.category))}</span>
         ${it.no?`<span class="badge b-gray">📄 ${esc(it.no)}</span>`:''}</div>
       <div class="pl-t">${esc(it.title)}</div>
-      <div class="pl-m"><span>📅 ${fmtDay(it.created_at)||'-'}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}${it.safety_note?`<span>📝 ${esc(it.safety_note)}</span>`:''}</div>
+      <div class="pl-m"><span>📅 ${fmtDay(it.created_at)||'-'}</span>${it.machine?`<span>🔧 ${esc(it.machine)}</span>`:''}${(it.return_reason&&isReturned(it))?`<span>↩️ ${esc(it.return_reason)}</span>`:(it.safety_note?`<span>📝 ${esc(it.safety_note)}</span>`:'')}</div>
     </div>`).join('');
   openModal(`${I.ic} ${I.label} (${arr.length})`,
     `<div class="note" style="margin-bottom:6px">${note}</div>`+
@@ -3160,14 +3336,14 @@ function exportReportXlsx(){
   const stLabel=it=>{ const k=safetyKind(it); return REJECT_KINDS.includes(k)?SAFETY_KIND[k].label:(STATUS[it.status]||STATUS.recorded).label; };
   const sfLabel=it=>{ const k=safetyKind(it); return k==='pending'?'รอตรวจ':SAFETY_KIND[k].label; };
   const head=['ID','No.PSIF','วันที่บันทึก','ปี','รหัสผู้รายงาน','ชื่อผู้รายงาน','หน่วยงาน/แผนก','พื้นที่/สถานที่','เครื่องจักร/จุด',
-    'ประเภท','หัวข้อ','รายละเอียด','ข้อเสนอแนะ','สถานะ','สถานะ (ระบบ)','ผล Safety','ผล Safety (ระบบ)','หมายเหตุ Safety',
+    'ประเภท','หัวข้อ','รายละเอียด','ข้อเสนอแนะ','สถานะ','สถานะ (ระบบ)','ผล Safety','ผล Safety (ระบบ)','หมายเหตุ Safety','เหตุผลที่ส่งกลับ',
     'ผู้ตรวจ Safety','วันที่ตรวจ','สรุปการแก้ไข','ผู้ปิดงาน','วันที่ปิดงาน','นับผลงาน (อนุมัติ+จบ)','รูปก่อน','รูปหลัง','ขาดรูป (ต้องแนบย้อนหลัง)','แก้ไขล่าสุด'];
   const rows=[head,...arr.map(i=>{
     const ph=i.photos||[];
     // ข้อมูลนำเข้าจาก Excel เก่ามี "สถานที่/เครื่องจักร" รวมช่องเดียว (เก็บใน machine) — ถ้าไม่มีพื้นที่ให้ใช้ค่านั้นแทน เพื่อไม่ให้คอลัมน์พื้นที่ว่าง
     const areaTxt=i.area_id||i.machine||'';
     return [i.id,i.no||'',i.created_at||'',i.year||'',i.reporter_id||'',i.reporter_name||'',i.vsm||'',areaTxt,i.machine||'',
-      catLabel(i.category),i.title||'',i.detail||'',i.suggestion||'',stLabel(i),i.status||'',sfLabel(i),i.safety_result||'',i.safety_note||'',
+      catLabel(i.category),i.title||'',i.detail||'',i.suggestion||'',stLabel(i),i.status||'',sfLabel(i),i.safety_result||'',i.safety_note||'',i.return_reason||'',
       i.safety_by||'',i.safety_at||'',i.done_detail||'',i.done_by||'',i.done_at||'',isCounted(i)?'ใช่':'ไม่',
       ph.filter(p=>p.kind==='before').length,ph.filter(p=>p.kind==='after').length,
       needsPhotoFix(i)?missingPhotos(i).map(k=>PHOTO_LBL[k]).join(' + '):'',i.updated_at||''];

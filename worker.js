@@ -56,6 +56,25 @@ const hasRealPhoto = (ph, kind) => Array.isArray(ph) && ph.some(p => {
   const k = p && (p.key || p.r2_key);
   return k && !String(k).startsWith('data:') && (!kind || (p.kind || kind) === kind);
 });
+async function hasPhotoRow(env, id, kind) {
+  const n = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM psif_photos WHERE psif_id=? AND kind=?').bind(id, kind).first();
+  return !!(n && n.n);
+}
+
+/* v2.4 — "ส่งกลับให้แก้ไข" (status='returned')
+ *  ข้อมูลเก่า/นำเข้าจาก Excel ไม่เคยมีรูปมาแต่ต้น จึงไม่ถูกกฎรูปบังคับ (ต้องตรงกับ isLegacyItem ใน index.html) */
+const LEGACY_MAX_ID = 1702, PHOTO_RULE_SINCE = '2026-07-16';
+const isLegacyRow = r => {
+  if (!r) return true;
+  if (/^import-/i.test(String(r.request_id || ''))) return true;
+  if (+r.id && +r.id <= LEGACY_MAX_ID) return true;
+  const d = String(r.created_at || '').slice(0, 10);
+  return !d || d < PHOTO_RULE_SINCE;
+};
+/* ส่งกลับได้เฉพาะช่วงก่อนเริ่มงานจริง — เริ่มทำ/ปิดงานไปแล้วย้อนไปถ่าย "ก่อนแก้ไข" ไม่ได้ ใช้ระบบตามเก็บย้อนหลังแทน */
+const RETURNABLE_STATUS = ['recorded', 'safety'];
+const RETURN_REASON_CON = 'Safety เปลี่ยนประเภทเป็น PSIF (Con) — ประเภทนี้ต้องมีรูป "ก่อนแก้ไข" กรุณาไปถ่ายรูปจุดเดิมแล้วแนบเข้ามาใหม่';
 
 /* ข้อ 4: "นับผลงาน" เฉพาะรายการที่ Safety อนุมัติ และ ดำเนินการจนจบ เท่านั้น */
 const isCounted = r => r && r.safety_result === 'approved' && r.status === 'done';
@@ -84,7 +103,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.3', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.4', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -298,21 +317,52 @@ async function psifRoute(env, request, seg) {
     const CONTENT_FIELDS = ['no','reporter_name','vsm','area_id','machine','category','title','detail','suggestion'];
     const SAFETY_FIELDS  = ['safety_result','safety_note','safety_by','safety_at'];
     const CLOSE_FIELDS   = ['done_detail','done_by','done_at'];
-    const ALL_FIELDS     = [...CONTENT_FIELDS, ...SAFETY_FIELDS, ...CLOSE_FIELDS, 'status'];
+    // v2.4: เหตุผลที่ส่งกลับ — Safety เป็นคนเขียน · ผู้รายงาน/Admin แผนก ล้างได้ตอนส่งกลับเข้าระบบ
+    const RETURN_FIELDS  = ['return_reason'];
+    const ALL_FIELDS     = [...CONTENT_FIELDS, ...SAFETY_FIELDS, ...CLOSE_FIELDS, ...RETURN_FIELDS, 'status'];
     const permitted = new Set();
     if (superA)     ALL_FIELDS.forEach(k => permitted.add(k));
-    if (deptA)      [...CONTENT_FIELDS, ...CLOSE_FIELDS, 'status'].forEach(k => permitted.add(k));
-    if (safeA)      [...CONTENT_FIELDS, ...SAFETY_FIELDS, 'status'].forEach(k => permitted.add(k));
-    if (isReporter) [...CLOSE_FIELDS, 'status'].forEach(k => permitted.add(k));
+    if (deptA)      [...CONTENT_FIELDS, ...CLOSE_FIELDS, ...RETURN_FIELDS, 'status'].forEach(k => permitted.add(k));
+    if (safeA)      [...CONTENT_FIELDS, ...SAFETY_FIELDS, ...RETURN_FIELDS, 'status'].forEach(k => permitted.add(k));
+    if (isReporter) [...CLOSE_FIELDS, ...RETURN_FIELDS, 'status'].forEach(k => permitted.add(k));
     for (const k of ALL_FIELDS)
       if (k in b && !permitted.has(k)) return err(`สิทธิ์ไม่พอสำหรับแก้ไขข้อมูลนี้ (${k})`, 403);
     if ('status' in b) {
       const st = b.status;
+      // v2.4: 'returned' = Safety ส่งกลับ · กลับเข้าคิวเป็น 'recorded' ได้เฉพาะเรื่องที่ถูกส่งกลับอยู่
+      const backToQueue = st === 'recorded' && oldRow.status === 'returned';
       const okStatus = superA
-        || (deptA && ['inprogress', 'done'].includes(st))
-        || (safeA && st === 'safety')
-        || (isReporter && st === 'done');
+        || (deptA && (['inprogress', 'done'].includes(st) || backToQueue))
+        || (safeA && (['safety', 'returned'].includes(st) || backToQueue))
+        || (isReporter && (st === 'done' || backToQueue));
       if (!okStatus) return err(`สิทธิ์ไม่พอสำหรับเปลี่ยนสถานะเป็น "${st}"`, 403);
+    }
+
+    /* ---- v2.4: เรื่องที่ถูกส่งกลับถูกบล็อกไว้ — ออกได้ทางเดียวคือกลับเข้าคิว Safety ('recorded') ---- */
+    if (oldRow.status === 'returned') {
+      if ('safety_result' in b && b.safety_result !== 'pending')
+        return err('เรื่องนี้ถูกส่งกลับให้ผู้รายงานแก้ไข — ต้องส่งกลับเข้าระบบก่อนจึงจะบันทึกผลตรวจได้');
+      if ('status' in b && b.status !== 'returned') {
+        if (b.status !== 'recorded')
+          return err('เรื่องนี้ถูกส่งกลับให้ผู้รายงานแก้ไข — ยังเดินงานต่อไม่ได้จนกว่าจะส่งกลับเข้าระบบ');
+        // ผู้รายงาน/Admin แผนก จะส่งกลับเข้าระบบได้ต่อเมื่อรูปที่ขาดครบแล้ว
+        // (Safety/Super Admin ยกเลิกการส่งกลับเองได้ ไม่ต้องรอรูป — เผื่อกดส่งกลับผิดเรื่อง)
+        if (!safeA && catIsCon(b.category ?? oldRow.category) && !isLegacyRow(oldRow)
+            && !hasRealPhoto(b.photos, 'before') && !(await hasPhotoRow(env, id, 'before')))
+          return err('ต้องแนบรูป "ก่อนแก้ไข" ก่อน จึงจะส่งเรื่องกลับเข้าระบบได้');
+      }
+    }
+
+    /* ---- v2.4: เปลี่ยนประเภทเป็น PSIF (Con) แล้วไม่มีรูป "ก่อนแก้ไข" → ส่งกลับให้ไปถ่ายมาใหม่ ----
+     *  บังคับที่ backend ด้วย ไม่ใช่แค่หน้าจอ — Admin แผนก (ที่ตั้งสถานะ 'returned' เองไม่ได้)
+     *  หรือ client รุ่นเก่า ก็ต้องไม่ทำให้เกิดเรื่อง PSIF (Con) ไร้รูปก่อนหลุดเข้าคิวอนุมัติ */
+    if ('category' in b && catIsCon(b.category) && !catIsCon(oldRow.category) && !isLegacyRow(oldRow)
+        && RETURNABLE_STATUS.includes(b.status ?? oldRow.status)
+        && !hasRealPhoto(b.photos, 'before') && !(await hasPhotoRow(env, id, 'before'))) {
+      b.status = 'returned';
+      if (!b.return_reason) b.return_reason = RETURN_REASON_CON;
+      b.safety_result = 'pending'; b.safety_note = '';
+      b.safety_by = actor.id; b.safety_at = nowISO();
     }
 
     // ข้อ 2: ปิดงานประเภท PSIF (Con) ต้องมีรูปหลังแก้ไข (มีอยู่แล้วใน DB หรือแนบมากับคำขอนี้)
@@ -332,13 +382,32 @@ async function psifRoute(env, request, seg) {
     if (sets.length) {
       sets.push('updated_at=?'); bind.push(nowISO());
       bind.push(id);
-      await env.DB.prepare(`UPDATE psif SET ${sets.join(',')} WHERE id=?`).bind(...bind).run();
+      try {
+        await env.DB.prepare(`UPDATE psif SET ${sets.join(',')} WHERE id=?`).bind(...bind).run();
+      } catch (e) {
+        // ยังไม่ได้รัน migrate-2026-08-23-return-reason.sql — เขียนฟิลด์อื่นให้ผ่านไปก่อน อย่าให้ทั้ง PATCH ล่ม
+        if (!/return_reason/i.test(String(e && e.message))) throw e;
+        const keys = ALL_FIELDS.filter(k => k in b && k !== 'return_reason');
+        const s2 = keys.map(k => `${k}=?`), b2 = keys.map(k => b[k]);
+        if (s2.length) {
+          s2.push('updated_at=?'); b2.push(nowISO()); b2.push(id);
+          await env.DB.prepare(`UPDATE psif SET ${s2.join(',')} WHERE id=?`).bind(...b2).run();
+        }
+      }
     }
     // req: notify the reporter whenever someone else acts on their record
     if (oldRow.reporter_id && actor.id !== oldRow.reporter_id) {
       for (const m of notifMessages(oldRow, b)) {
         await notify(env, oldRow.reporter_id, +id, m, actor.id, b._by_name || actor.name || '');
       }
+    }
+    /* v2.4: เรื่องที่ส่งกลับไป ถ้าผู้รายงานแก้แล้วส่งกลับเข้าระบบ ต้องบอกคน Safety ที่ส่งกลับด้วย
+       ไม่งั้นเรื่องจะไปนอนอยู่ท้ายคิวโดยไม่มีใครรู้ว่ามันกลับมาแล้ว */
+    if (oldRow.status === 'returned' && b.status === 'recorded'
+        && oldRow.safety_by && oldRow.safety_by !== actor.id) {
+      await notify(env, oldRow.safety_by, +id,
+        `📨 ${oldRow.reporter_name || oldRow.reporter_id} แก้ไขและส่งเรื่อง "${(oldRow.title || '').slice(0, 40)}" กลับเข้าระบบแล้ว — รอตรวจอีกครั้ง`,
+        actor.id, b._by_name || actor.name || '');
     }
     // 2026-08-10: แนบรูป (รวม "แนบย้อนหลัง" ของ PSIF (Con) ที่รูปขาด) —
     // เดิมไม่เช็คสิทธิ์เลย ตอนนี้จำกัดที่ เจ้าของเรื่อง · Admin แผนกนั้น · Safety · Super Admin
@@ -395,13 +464,20 @@ function notifMessages(oldRow, b) {
     msgs.push(`🔁 Safety: เรื่อง "${t}" เป็นเรื่องซ้ำ${b.safety_note ? ' — ' + b.safety_note : ''}`);
   if (b.safety_result === 'rejected' && oldRow.safety_result !== 'rejected')
     msgs.push(`❌ Safety ไม่อนุมัติเรื่อง "${t}"${b.safety_note ? ' — ' + b.safety_note : ''}`);
+  // v2.4: ส่งกลับให้แก้ไข — ข้อความนี้คือสิ่งที่บอกพนักงานว่า "ต้องไปถ่ายรูปมาใหม่"
+  const justReturned = b.status === 'returned' && oldRow.status !== 'returned';
+  if (justReturned)
+    msgs.push(`↩️ Safety ส่งเรื่อง "${t}" กลับให้แก้ไข${b.return_reason ? ' — ' + b.return_reason : ''}`);
+  if (b.status === 'recorded' && oldRow.status === 'returned')
+    msgs.push(`📨 เรื่อง "${t}" ถูกส่งกลับเข้าระบบแล้ว — รอ Safety ตรวจอีกครั้ง`);
   if (b.status === 'inprogress' && oldRow.status !== 'inprogress')
     msgs.push(`🚀 เรื่อง "${t}" เริ่มดำเนินการแล้ว${b.no ? ' (No.' + b.no + ')' : ''}`);
   if (b.status === 'done' && oldRow.status !== 'done')
     msgs.push(`🏁 เรื่อง "${t}" ปิดงานเรียบร้อยแล้ว`);
   const edited = ['title', 'detail', 'suggestion', 'category', 'machine', 'area_id']
     .some(k => k in b && String(b[k] ?? '') !== String(oldRow[k] ?? ''));
-  if (edited) msgs.push(`✏️ มีการแก้ไขเนื้อหาเรื่อง "${t}"`);
+  // ตอนส่งกลับมักแก้ประเภทไปพร้อมกัน — เหตุผลที่ส่งกลับบอกครบแล้ว ไม่ต้องยิงซ้ำอีกข้อความ
+  if (edited && !justReturned) msgs.push(`✏️ มีการแก้ไขเนื้อหาเรื่อง "${t}"`);
   return msgs;
 }
 async function notify(env, empId, psifId, message, byId, byName) {

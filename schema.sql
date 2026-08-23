@@ -63,11 +63,14 @@ CREATE TABLE IF NOT EXISTS psif (
   detail        TEXT DEFAULT '',
   suggestion    TEXT DEFAULT '',
   -- workflow: recorded -> safety -> inprogress -> done
+  -- v2.4: + 'returned' = Safety ส่งกลับให้ผู้รายงานแก้ไข (มักคือให้ไปถ่ายรูป "ก่อนแก้ไข" มาใหม่
+  --       หลังเปลี่ยนประเภทเป็น PSIF (Con)) — เรื่องหยุดเดินงานจนกว่าจะส่งกลับเข้าคิวเป็น 'recorded'
   status        TEXT DEFAULT 'recorded',
   safety_result TEXT DEFAULT 'pending',   -- pending | approved | rejected
   safety_note   TEXT DEFAULT '',
   safety_by     TEXT DEFAULT '',
   safety_at     TEXT DEFAULT '',
+  return_reason TEXT DEFAULT '',          -- v2.4: เหตุผลที่ Safety ส่งกลับ (DB เดิม: รัน migrate-2026-08-23-return-reason.sql)
   done_detail   TEXT DEFAULT '',
   done_by       TEXT DEFAULT '',
   done_at       TEXT DEFAULT '',
