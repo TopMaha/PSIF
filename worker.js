@@ -39,6 +39,11 @@ async function getActor(env, request, fallbackId) {
   ).bind(id).first();
   return (emp && emp.active !== 0) ? emp : null;
 }
+
+/* v2.5: Manager = สิทธิ์เท่ากับ Admin แผนก (ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง · เข้าเมนูตั้งค่าไม่ได้)
+   รวมไว้จุดเดียว — เพิ่ม/ลด role ที่นี่ที่เดียว จะได้ไม่หลุดสิทธิ์บาง endpoint */
+const DEPT_ADMIN_ROLES = ['dept_admin', 'manager'];
+const isDeptAdminRole = r => DEPT_ADMIN_ROLES.includes(r);
 /* ตั้งค่า/ข้อมูลหลักทั้งหมด = เฉพาะ Super Admin (role 'admin') — Safety/Dept Admin ถูกกันที่นี่ */
 async function requireSuperAdmin(env, request, body) {
   const a = await getActor(env, request, body && body._by);
@@ -103,7 +108,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.4', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.5', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -199,10 +204,10 @@ async function psifRoute(env, request, seg) {
     }
     const year = u.searchParams.get('year');
     if (year) { where.push('year=?'); bind.push(+year); }
-    // ข้อ 3: Department Admin เห็นเฉพาะแผนกตัวเอง — กรองที่ query ไม่ใช่แค่ซ่อน UI
+    // ข้อ 3: Admin แผนก / Manager เห็นเฉพาะแผนกตัวเอง — กรองที่ query ไม่ใช่แค่ซ่อน UI
     // (เรียกแบบไม่ระบุตัวตน เช่นตอนยังไม่ล็อกอิน = ไม่กรอง เหมือนเดิม เพื่อไม่ให้ bootstrap/login พัง)
     const actor = await getActor(env, request);
-    if (actor && actor.role === 'dept_admin') { where.push('vsm=?'); bind.push(actor.vsm || ''); }
+    if (actor && isDeptAdminRole(actor.role)) { where.push('vsm=?'); bind.push(actor.vsm || ''); }
     const sql = 'SELECT * FROM psif' + (where.length ? ' WHERE ' + where.join(' AND ') : '') +
                 ' ORDER BY created_at DESC';
     const rows = (await env.DB.prepare(sql).bind(...bind).all()).results;
@@ -214,9 +219,9 @@ async function psifRoute(env, request, seg) {
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
     if (!row) return err('not found', 404);
     const actor = await getActor(env, request);
-    if (actor && actor.role === 'dept_admin' &&
+    if (actor && isDeptAdminRole(actor.role) &&
         (row.vsm || '').trim() !== (actor.vsm || '').trim() && row.reporter_id !== actor.id)
-      return err('Admin แผนก เข้าถึงได้เฉพาะรายการของแผนกตัวเอง', 403);
+      return err('Admin แผนก / Manager เข้าถึงได้เฉพาะรายการของแผนกตัวเอง', 403);
     await attachPhotos(env, [row]);
     return ok({ item: row });
   }
@@ -277,10 +282,10 @@ async function psifRoute(env, request, seg) {
         if (k && !k.startsWith('data:')) await addPhoto(env, newId, p.kind || 'before', k);
       }
     }
-    // แจ้งกลุ่มผู้ดูแลเมื่อมีเรื่องใหม่: Super Admin + Safety ทุกคน และ Admin แผนกของหน่วยงานนั้น (ข้อ 3)
+    // แจ้งกลุ่มผู้ดูแลเมื่อมีเรื่องใหม่: Super Admin + Safety ทุกคน และ Admin แผนก/Manager ของหน่วยงานนั้น (ข้อ 3)
     try {
       const mgrs = (await env.DB.prepare(
-        "SELECT id FROM employees WHERE active=1 AND (role IN ('admin','safety') OR (role='dept_admin' AND vsm=?))"
+        "SELECT id FROM employees WHERE active=1 AND (role IN ('admin','safety') OR (role IN ('dept_admin','manager') AND vsm=?))"
       ).bind(b.vsm || '').all()).results;
       const rn = b.reporter_name || b.reporter_id;
       const t = title.slice(0, 40);
@@ -301,18 +306,18 @@ async function psifRoute(env, request, seg) {
 
     /* ---- ข้อ 3/6: สิทธิ์แก้ไขเช็คที่ backend (role จากตาราง employees ไม่ใช่จาก client) ----
      *  Super Admin ('admin')  : ทุกฟิลด์ ทุกแผนก
-     *  Dept Admin             : เนื้อหา + workflow (ออกเลข/ปิดงาน) เฉพาะแผนกตัวเอง — ห้ามแตะผลตรวจ Safety
+     *  Dept Admin / Manager   : เนื้อหา + workflow (ออกเลข/ปิดงาน) เฉพาะแผนกตัวเอง — ห้ามแตะผลตรวจ Safety
      *  Safety                 : ผลตรวจ + แก้เนื้อหา (ตามสิทธิ์เดิม) — ห้ามออกเลข/ปิดงานของคนอื่น
      *  ผู้รายงานเอง            : ปิดงานเรื่องของตัวเองเท่านั้น */
     const actor = await getActor(env, request, b._by);
     if (!actor) return err('ไม่ทราบตัวตนผู้ใช้ — โปรดรีเฟรชหน้าแอปแล้วเข้าสู่ระบบใหม่', 401);
     const superA = actor.role === 'admin';
     const sameDept = (oldRow.vsm || '').trim() === (actor.vsm || '').trim();
-    const deptA = actor.role === 'dept_admin' && sameDept;
+    const deptA = isDeptAdminRole(actor.role) && sameDept;
     const safeA = actor.role === 'safety' || superA;
     const isReporter = actor.id === oldRow.reporter_id;
-    if (actor.role === 'dept_admin' && !sameDept && !isReporter)
-      return err('Admin แผนก จัดการได้เฉพาะรายการของแผนกตัวเอง', 403);
+    if (isDeptAdminRole(actor.role) && !sameDept && !isReporter)
+      return err('Admin แผนก / Manager จัดการได้เฉพาะรายการของแผนกตัวเอง', 403);
 
     const CONTENT_FIELDS = ['no','reporter_name','vsm','area_id','machine','category','title','detail','suggestion'];
     const SAFETY_FIELDS  = ['safety_result','safety_note','safety_by','safety_at'];

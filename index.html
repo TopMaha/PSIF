@@ -697,7 +697,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.4';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.5';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -884,8 +884,8 @@ async function createPsif(rec,photos){
       created_at:new Date().toISOString().slice(0,19).replace('T',' '),
       photos:photos||[], ...rec};
     state.items.unshift(item);
-    // demo: แจ้งเตือนกลุ่มผู้ดูแล (safety+super admin+admin แผนกของหน่วยงานนั้น) เมื่อมีเรื่องใหม่
-    state.employees.filter(e=>(e.role==='admin'||e.role==='safety'||(e.role==='dept_admin'&&(e.vsm||'')===(item.vsm||'')))&&e.id!==item.reporter_id)
+    // demo: แจ้งเตือนกลุ่มผู้ดูแล (safety+super admin+Admin แผนก/Manager ของหน่วยงานนั้น) เมื่อมีเรื่องใหม่
+    state.employees.filter(e=>(e.role==='admin'||e.role==='safety'||(DEPT_ADMIN_ROLES.includes(e.role)&&(e.vsm||'')===(item.vsm||'')))&&e.id!==item.reporter_id)
       .forEach(e=>localNotify(e.id,item.id,`🆕 เรื่องใหม่จาก ${item.reporter_name||item.reporter_id}: "${(item.title||'').slice(0,40)}"`));
     demoSave(); return item;
   }
@@ -1180,16 +1180,17 @@ async function doLogin(){
 }
 /* สิทธิ์ผู้ใช้ 6 ระดับ (ข้อ 3: แยก Admin เป็น 2 ระดับ)
    user = พนักงานทั่วไป · teamleader = หัวหน้าทีม เห็นรายคนใน VSM ตัวเอง ·
-   manager = ผู้จัดการ เห็นรายคนในแผนกตัวเอง · safety = ตรวจสอบ/อนุมัติ (เข้าตั้งค่าไม่ได้ — ข้อ 6) ·
-   dept_admin = Admin แผนก: ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ช่องหน่วยงาน/VSM = แผนก) เข้าตั้งค่าไม่ได้ ·
+   safety = ตรวจสอบ/อนุมัติ (เข้าตั้งค่าไม่ได้ — ข้อ 6) ·
+   dept_admin = Admin แผนก · manager = Manager (v2.5: สิทธิ์เท่ากัน) :
+     ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ช่องหน่วยงาน/VSM = แผนก) เข้าตั้งค่าไม่ได้ ·
    admin = Super Admin: ทุกแผนก + หน้าตั้งค่า */
-const ROLE_LABEL={user:'พนักงาน',teamleader:'Team Leader',manager:'Manager',dept_admin:'Admin แผนก',safety:'Safety',admin:'Super Admin'};
+const ROLE_LABEL={user:'พนักงาน',teamleader:'Team Leader',manager:'Manager',dept_admin:'Admin แผนก',safety:'Safety',admin:'Super Admin'};   // manager = สิทธิ์เท่า dept_admin (v2.5)
 const roleLabel=r=>ROLE_LABEL[r]||r||'user';
 function enterApp(){
   $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
   const roleTxt = (CURRENT_USER.role&&CURRENT_USER.role!=='user') ? ' · '+roleLabel(CURRENT_USER.role) : '';
   $('who').innerHTML = esc(CURRENT_USER.name)+'<br>'+esc(CURRENT_USER.id)+esc(roleTxt);
-  listScope = isDeptAdmin() ? 'all' : 'mine';   // Admin แผนก เริ่มที่มุมมอง "แผนกของฉัน"
+  listScope = isDeptAdmin() ? 'all' : 'mine';   // Admin แผนก/Manager เริ่มที่มุมมอง "แผนกของฉัน"
   renderNav(); fillStaticUI(); setPane('home');
   // โหลดรายการใหม่หลังรู้ตัวตน — ตอน bootstrap ยังไม่ล็อกอิน backend จึงยัง scope ตามแผนกให้ไม่ได้ (ข้อ 3)
   if(online()) reloadItems().then(()=>refreshAll()).catch(()=>{});
@@ -1202,9 +1203,12 @@ function logout(){ LS.set('psif_user',null); CURRENT_USER=null; adminUnlocked=fa
    จึงปลดล็อกด้วยรหัสผ่านไม่ได้อีกต่อไป (กันช่องโหว่ข้อ 3/6) */
 function isSuperAdmin(){ return CURRENT_USER && (CURRENT_USER.role==='admin' || (adminUnlocked && !online())); }
 function isAdmin(){ return isSuperAdmin(); }                 // ชื่อเดิม ใช้อยู่หลายจุด = Super Admin
-function isDeptAdmin(){ return CURRENT_USER && CURRENT_USER.role==='dept_admin'; }
+/* v2.5: Manager ได้สิทธิ์เท่ากับ Admin แผนก (ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง · เข้าตั้งค่าไม่ได้)
+   รวมชื่อ role ไว้ที่เดียว — backend (worker.js) ใช้ชุดเดียวกันนี้ */
+const DEPT_ADMIN_ROLES=['dept_admin','manager'];
+function isDeptAdmin(){ return !!CURRENT_USER && DEPT_ADMIN_ROLES.includes(CURRENT_USER.role); }
 function isSafety(){ return CURRENT_USER && (CURRENT_USER.role==='safety' || isSuperAdmin()); }
-/* จัดการ (ออกเลข/ปิดงาน/แก้เนื้อหา) รายการนี้ได้ไหม: Super Admin ทุกแผนก · Admin แผนก เฉพาะแผนกตัวเอง */
+/* จัดการ (ออกเลข/ปิดงาน/แก้เนื้อหา) รายการนี้ได้ไหม: Super Admin ทุกแผนก · Admin แผนก/Manager เฉพาะแผนกตัวเอง */
 function canManage(it){ return isSuperAdmin() || (isDeptAdmin() && ((it&&it.vsm)||'').trim()===myVsm()); }
 function requireAdmin(){
   if(isSuperAdmin()) return true;
@@ -1704,7 +1708,7 @@ function openItem(id){
       : `<div class="warn">รออนุมัติเปิดดำเนินการของหน่วยงาน <b>${esc(it.vsm||'-')}</b> โดย Admin (เมนูตั้งค่า → เปิดดำเนินการ)</div>`;
   }
   if(canSetNo){
-    actions+=`<div class="note">Safety ใส่เลข No.PSIF ได้ที่นี่ — Admin แผนกจะเป็นผู้กด "เริ่มดำเนินการ" ต่อไป</div>
+    actions+=`<div class="note">Safety ใส่เลข No.PSIF ได้ที่นี่ — Admin แผนก/Manager จะเป็นผู้กด "เริ่มดำเนินการ" ต่อไป</div>
        <div class="row"><input class="inp" id="noInput_${id}" placeholder="No.PSIF เช่น 26-CHU-1145520" value="${esc(it.no||'')}"><button class="btn btn-blue" onclick="saveNo(${id})">💾 บันทึกเลข</button></div>`;
   }
   if(canClose) actions+=`<button class="btn btn-green btn-block" onclick="openClose(${id})">🏁 ปิดงาน${catIsCon(it.category)?' (แนบรูปหลังแก้ไข)':''}</button>`;
@@ -2175,7 +2179,7 @@ function renderDash(){
   applyDashWidth();
   const y=+($('dashYear').value||yr());
   // TL/Manager มีทางลัดเปิดดูรายคนของกลุ่มตัวเองได้ทันที
-  const teamChip=((['teamleader','manager'].includes(CURRENT_USER.role)||isDeptAdmin())&&myVsm())
+  const teamChip=((CURRENT_USER.role==='teamleader'||isDeptAdmin())&&myVsm())
     ? `<button class="chip" onclick="openTeam(myVsm())">👥 ทีมของฉัน</button>` : '';
   // Admin แผนก/Safety/Super Admin: ดึงรายงานรายคนทุกกลุ่มเป็น Excel ได้จากแดชบอร์ดเลย
   const xlsChip=(isSafety()||isDeptAdmin())
@@ -2412,14 +2416,14 @@ function renderMgr(){
 /* ====================================================================
  *  TEAM DRILL-DOWN — กด VSM/แผนก บนแดชบอร์ดเพื่อดูรายคน (req: TL/Manager)
  *  ใครส่งกี่เรื่อง · ปิดกี่เรื่อง · เหลือกี่เรื่อง — 20 คน/หน้า ค้นหา+เรียงได้
- *  สิทธิ์: admin/safety เปิดได้ทุกกลุ่ม · teamleader/manager เฉพาะกลุ่มตัวเอง
+ *  สิทธิ์: admin/safety เปิดได้ทุกกลุ่ม · teamleader/manager/Admin แผนก เฉพาะกลุ่มตัวเอง
  * ==================================================================== */
 function myVsm(){ return CURRENT_USER ? (empVsm(CURRENT_USER.id)||CURRENT_USER.vsm||'').trim() : ''; }
 function canDrill(dept){
   if(!CURRENT_USER) return false;
   if(isSafety()) return true;                                            // super admin + safety เข้าได้หมด
-  if(isDeptAdmin()) return myVsm()===dept;                               // ข้อ 3: Admin แผนก เฉพาะแผนกตัวเอง
-  if(['teamleader','manager'].includes(CURRENT_USER.role)) return myVsm()===dept;
+  if(isDeptAdmin()) return myVsm()===dept;                               // ข้อ 3: Admin แผนก/Manager เฉพาะแผนกตัวเอง
+  if(CURRENT_USER.role==='teamleader') return myVsm()===dept;
   return false;
 }
 const CAT_SHORT={'PSIF':'Con','Behavior':'Beh','Near miss':'NM'};
@@ -2620,7 +2624,7 @@ function editEmp(id){
     <label class="fl">หน่วยงาน / VSM</label><input class="inp" id="eVsm" value="${esc(e.vsm||'')}">
     <label class="fl">สิทธิ์</label><select class="inp" id="eRole">
       ${['user','teamleader','manager','dept_admin','safety','admin'].map(r=>`<option value="${r}" ${e.role===r?'selected':''}>${roleLabel(r)}${r==='user'?'':' ('+r+')'}</option>`).join('')}</select>
-    <div class="sub" style="margin-top:4px">Team Leader/Manager เห็นรายคนในกลุ่มตัวเอง · <b>Admin แผนก</b> ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ตามช่องหน่วยงาน/VSM ด้านบน) เข้าตั้งค่าไม่ได้ · <b>Super Admin</b> ทุกแผนก + ตั้งค่า</div>
+    <div class="sub" style="margin-top:4px">Team Leader เห็นรายคนในกลุ่มตัวเอง · <b>Manager</b> และ <b>Admin แผนก</b> สิทธิ์เท่ากัน — ติดตาม/ดำเนินการ PSIF เฉพาะแผนกตัวเอง (ตามช่องหน่วยงาน/VSM ด้านบน) เข้าตั้งค่าไม่ได้ · <b>Super Admin</b> ทุกแผนก + ตั้งค่า</div>
     <button class="btn btn-blue btn-block" style="margin-top:14px" onclick="saveEmp()">บันทึก</button>
     ${tools}`);
 }
@@ -3330,7 +3334,7 @@ function xlsxDownload(filename,rows,sheetName){
 /* ข้อ 5: ปุ่ม Report หน้าติดตาม — export ตาม filter ที่เลือกอยู่บนหน้าจอ ครบทุกฟิลด์ของ PSIF
    สิทธิ์: Admin แผนก (เห็นเฉพาะแผนกตัวเอง — ถูก scope ทั้ง backend และ listBaseItems แล้ว) / Safety / Super Admin */
 function exportReportXlsx(){
-  if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Safety / Super Admin','orange'); return; }
+  if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Manager / Safety / Super Admin','orange'); return; }
   const arr=listFilteredItems();
   if(!arr.length){ toast('ไม่มีรายการตามตัวกรองปัจจุบัน','orange'); return; }
   const stLabel=it=>{ const k=safetyKind(it); return REJECT_KINDS.includes(k)?SAFETY_KIND[k].label:(STATUS[it.status]||STATUS.recorded).label; };
@@ -3371,7 +3375,7 @@ function xNowTxt(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
 function exportTeamXlsx(dept,y){
   y=+(y||teamYear||($('dashYear')&&$('dashYear').value)||yr());
   if(dept){ if(!canDrill(dept)){ toast('เฉพาะหัวหน้าทีม/ผู้จัดการของกลุ่มนี้ หรือ Safety/Admin','orange'); return; } }
-  else if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Safety / Super Admin','orange'); return; }
+  else if(!(isSafety()||isDeptAdmin())){ toast('เฉพาะ Admin แผนก / Manager / Safety / Super Admin','orange'); return; }
 
   const {people}=computePerson(y);
   const inScope=dept? people.filter(p=>deptKey(p.vsm)===dept) : people.slice();
