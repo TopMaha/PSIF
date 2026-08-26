@@ -83,6 +83,10 @@ CREATE INDEX IF NOT EXISTS idx_psif_reporter ON psif(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_psif_status   ON psif(status);
 CREATE INDEX IF NOT EXISTS idx_psif_year     ON psif(year);
 CREATE INDEX IF NOT EXISTS idx_psif_vsm      ON psif(vsm);
+-- v2.6 (perf): หน้าติดตามดึงแบบ ORDER BY created_at DESC เสมอ — ไม่มีดัชนีนี้ต้องเรียงทั้งตารางทุกครั้ง
+CREATE INDEX IF NOT EXISTS idx_psif_created_at ON psif(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_psif_vsm_created ON psif(vsm, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_psif_year_vsm   ON psif(year, vsm);
 -- unique กันบันทึกซ้ำระดับข้อมูล (DB ที่มีอยู่แล้ว: รัน migrate-2026-07-15-idempotency.sql แทน)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_psif_request_id ON psif(request_id) WHERE request_id <> '';
 
@@ -109,6 +113,8 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at  TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_notif_emp ON notifications(employee_id, is_read);
+-- v2.6 (perf): กระดิ่งแจ้งเตือนถูกเรียกทุก 60 วินาที/คน — WHERE employee_id=? ORDER BY id DESC
+CREATE INDEX IF NOT EXISTS idx_notif_emp_id ON notifications(employee_id, id DESC);
 
 -- ============================================================
 --  SEED DATA

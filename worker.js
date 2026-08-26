@@ -108,7 +108,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.5', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.6', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -145,45 +145,54 @@ async function importRoute(env, request) {
   // 2026-08-10: ติดป้ายให้แถวที่ "นำเข้า" (request_id ขึ้นต้นด้วย import-) — ข้อมูลย้ายระบบไม่มีรูป
   // มาแต่ต้น แอปจะได้ไม่ไปเตือนว่า "PSIF (Con) ขาดรูป" กับข้อมูลชุดนี้ (ดู isLegacyItem ใน index.html)
   const stamp = 'import-' + Date.now().toString(36);
-  let n = 0;
+  const vals = [];
   for (const r of rows) {
     const title = (r.title || (r.detail || '').slice(0, 120) || '(นำเข้าข้อมูล)');
     if (!(r.detail || r.title)) continue;
-    const vals = [
+    vals.push([
       r.no || '', r.reporter_id || '', r.reporter_name || '', r.vsm || '', r.area_id || '', r.machine || '', r.category || '',
       title, r.detail || '', r.suggestion || '',
       r.status || 'recorded', r.safety_result || 'pending', r.safety_note || '', r.safety_at || '',
       r.done_detail || '', r.done_by || '', r.done_at || '',
       +r.year || new Date().getFullYear(), r.created_at || now, now,
-    ];
-    try {
-      await env.DB.prepare(
-        `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
-           status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at,request_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).bind(...vals, `${stamp}-${n}`).run();
-    } catch (e) {
-      // ยังไม่ได้ run migration request_id → นำเข้าแบบเดิม (ยังกันด้วยวันที่/ช่วง id ฝั่งแอปอยู่)
-      if (!/no such column/i.test(String((e && e.message) || e))) throw e;
-      await env.DB.prepare(
-        `INSERT INTO psif (no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
-           status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).bind(...vals).run();
-    }
-    n++;
+    ]);
   }
-  return ok({ imported: n });
+  const COLS = `no,reporter_id,reporter_name,vsm,area_id,machine,category,title,detail,suggestion,
+       status,safety_result,safety_note,safety_at,done_detail,done_by,done_at,year,created_at,updated_at`;
+  const stmtNew = env.DB.prepare(
+    `INSERT INTO psif (${COLS},request_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const stmtOld = env.DB.prepare(
+    `INSERT INTO psif (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  // perf: เดิม INSERT ทีละแถวต่อกัน (1,690 แถว = 1,690 รอบไป-กลับ D1) — ตอนนี้ส่งครั้งละ 50 แถว
+  // batch เป็นทรานแซกชัน: ถ้าชุดไหนพลาดจะไม่มีแถวค้างครึ่ง ๆ กลาง ๆ
+  const CHUNK = 50;
+  let useNew = true;
+  for (let i = 0; i < vals.length; i += CHUNK) {
+    const part = vals.slice(i, i + CHUNK);
+    if (useNew) {
+      try {
+        await env.DB.batch(part.map((v, j) => stmtNew.bind(...v, `${stamp}-${i + j}`)));
+        continue;
+      } catch (e) {
+        // ยังไม่ได้ run migration request_id → นำเข้าแบบเดิม (ยังกันด้วยวันที่/ช่วง id ฝั่งแอปอยู่)
+        if (!/no such column/i.test(String((e && e.message) || e))) throw e;
+        useNew = false;
+      }
+    }
+    await env.DB.batch(part.map(v => stmtOld.bind(...v)));
+  }
+  return ok({ imported: vals.length });
 }
 
 /* ---------------- bootstrap (one round-trip on app load) ---------------- */
 async function bootstrap(env) {
-  const [emp, areas, cats, tgts, iss] = await Promise.all([
-    env.DB.prepare('SELECT * FROM employees ORDER BY id').all(),
-    env.DB.prepare('SELECT * FROM areas WHERE active=1 ORDER BY name').all(),
-    env.DB.prepare('SELECT * FROM categories WHERE active=1 ORDER BY rowid').all(),
-    env.DB.prepare('SELECT * FROM targets ORDER BY year').all(),
-    env.DB.prepare('SELECT * FROM issuances ORDER BY year, vsm').all(),
+  // perf: ยิงทั้ง 5 คำสั่งไปใน round-trip เดียว (batch) แทนการเปิด 5 คำขอแยกกัน
+  const [emp, areas, cats, tgts, iss] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM employees ORDER BY id'),
+    env.DB.prepare('SELECT * FROM areas WHERE active=1 ORDER BY name'),
+    env.DB.prepare('SELECT * FROM categories WHERE active=1 ORDER BY rowid'),
+    env.DB.prepare('SELECT * FROM targets ORDER BY year'),
+    env.DB.prepare('SELECT * FROM issuances ORDER BY year, vsm'),
   ]);
   return ok({
     employees: emp.results, areas: areas.results, categories: cats.results,
@@ -208,10 +217,16 @@ async function psifRoute(env, request, seg) {
     // (เรียกแบบไม่ระบุตัวตน เช่นตอนยังไม่ล็อกอิน = ไม่กรอง เหมือนเดิม เพื่อไม่ให้ bootstrap/login พัง)
     const actor = await getActor(env, request);
     if (actor && isDeptAdminRole(actor.role)) { where.push('vsm=?'); bind.push(actor.vsm || ''); }
-    const sql = 'SELECT * FROM psif' + (where.length ? ' WHERE ' + where.join(' AND ') : '') +
-                ' ORDER BY created_at DESC';
-    const rows = (await env.DB.prepare(sql).bind(...bind).all()).results;
-    await attachPhotos(env, rows);
+    /* perf (2026-08-26): เดิมดึงรายการ 1 รอบ แล้วไล่ดึงรูปทีละ 90 id ต่อกันอีกหลายสิบรอบ
+       (2,000 กว่ารายการ = 25 รอบ ≈ 1.5 วินาที) — ตอนนี้ยิงรายการ + รูปของชุดเดียวกันไปใน
+       batch เดียว โดยให้ SQL เลือก id เองด้วย subquery จึงไม่ติดลิมิตพารามิเตอร์ของ D1 */
+    const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+    const [main, phRes] = await env.DB.batch([
+      env.DB.prepare('SELECT * FROM psif' + whereSql + ' ORDER BY created_at DESC').bind(...bind),
+      env.DB.prepare('SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (SELECT id FROM psif' + whereSql + ')').bind(...bind),
+    ]);
+    const rows = main.results || [];
+    mergePhotos(env, rows, phRes.results || []);
     return ok({ items: rows });
   }
 
@@ -289,10 +304,10 @@ async function psifRoute(env, request, seg) {
       ).bind(b.vsm || '').all()).results;
       const rn = b.reporter_name || b.reporter_id;
       const t = title.slice(0, 40);
-      for (const m of mgrs) {
-        if (m.id === b.reporter_id) continue;
-        await notify(env, m.id, newId, `🆕 เรื่องใหม่จาก ${rn}: "${t}"`, b.reporter_id, b.reporter_name || '');
-      }
+      await notifyMany(env, mgrs.filter(m => m.id !== b.reporter_id).map(m => ({
+        empId: m.id, psifId: newId, message: `🆕 เรื่องใหม่จาก ${rn}: "${t}"`,
+        byId: b.reporter_id, byName: b.reporter_name || '',
+      })));
     } catch (_) { /* notifications table missing — don't break the create */ }
     const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(newId).first();
     await attachPhotos(env, [row]);
@@ -402,9 +417,10 @@ async function psifRoute(env, request, seg) {
     }
     // req: notify the reporter whenever someone else acts on their record
     if (oldRow.reporter_id && actor.id !== oldRow.reporter_id) {
-      for (const m of notifMessages(oldRow, b)) {
-        await notify(env, oldRow.reporter_id, +id, m, actor.id, b._by_name || actor.name || '');
-      }
+      await notifyMany(env, notifMessages(oldRow, b).map(m => ({
+        empId: oldRow.reporter_id, psifId: +id, message: m,
+        byId: actor.id, byName: b._by_name || actor.name || '',
+      })));
     }
     /* v2.4: เรื่องที่ส่งกลับไป ถ้าผู้รายงานแก้แล้วส่งกลับเข้าระบบ ต้องบอกคน Safety ที่ส่งกลับด้วย
        ไม่งั้นเรื่องจะไปนอนอยู่ท้ายคิวโดยไม่มีใครรู้ว่ามันกลับมาแล้ว */
@@ -486,20 +502,31 @@ function notifMessages(oldRow, b) {
   return msgs;
 }
 async function notify(env, empId, psifId, message, byId, byName) {
+  await notifyMany(env, [{ empId, psifId, message, byId, byName }]);
+}
+/* perf: แจ้งเตือนหลายคน (เรื่องใหม่ = Super Admin + Safety ทุกคน + Manager ของแผนก) เดิมเขียน
+   ทีละแถวต่อกันเป็นสิบรอบ ทำให้ "กดบันทึก" ค้างนาน — ตอนนี้เขียนทั้งชุดใน batch เดียว */
+async function notifyMany(env, list) {
+  const rows = (list || []).filter(x => x && x.empId);
+  if (!rows.length) return;
+  const at = nowISO();
+  const stmt = env.DB.prepare(
+    'INSERT INTO notifications (employee_id,psif_id,message,by_id,by_name,is_read,created_at) VALUES (?,?,?,?,?,0,?)');
   try {
-    await env.DB.prepare(
-      'INSERT INTO notifications (employee_id,psif_id,message,by_id,by_name,is_read,created_at) VALUES (?,?,?,?,?,0,?)'
-    ).bind(empId, psifId, message, byId || '', byName || '', nowISO()).run();
+    await env.DB.batch(rows.map(x =>
+      stmt.bind(x.empId, x.psifId, x.message, x.byId || '', x.byName || '', at)));
   } catch (_) { /* table missing — don't break the main action */ }
 }
 async function notifRoute(env, request, url, seg) {
   if (request.method === 'GET') {
     const emp = url.searchParams.get('employee_id');
     if (!emp) return err('employee_id required');
-    const rows = (await env.DB.prepare(
-      'SELECT * FROM notifications WHERE employee_id=? ORDER BY id DESC LIMIT 50').bind(emp).all()).results;
-    const unread = (await env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM notifications WHERE employee_id=? AND is_read=0').bind(emp).first())?.n || 0;
+    const [listRes, cntRes] = await env.DB.batch([
+      env.DB.prepare('SELECT * FROM notifications WHERE employee_id=? ORDER BY id DESC LIMIT 50').bind(emp),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE employee_id=? AND is_read=0').bind(emp),
+    ]);
+    const rows = listRes.results || [];
+    const unread = (cntRes.results && cntRes.results[0] && cntRes.results[0].n) || 0;
     return ok({ items: rows, unread });
   }
   if (request.method === 'POST' && seg[1] === 'read') {
@@ -531,25 +558,11 @@ async function attachMissingPhotos(env, psifId, photos) {
   }
   return n;
 }
-async function attachPhotos(env, rows) {
-  if (!rows.length) return;
-  const ids = rows.map(r => r.id);
-  // D1 caps bound parameters at ~100 per query, so chunk the IN(...) lookup.
-  // Without this, loading many records (e.g. after a bulk import) throws
-  // "too many SQL variables" and breaks the whole /psif (and app bootstrap).
-  const ph = [];
-  const CHUNK = 90;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const slice = ids.slice(i, i + CHUNK);
-    const part = (await env.DB.prepare(
-      `SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (${slice.map(()=>'?').join(',')})`
-    ).bind(...slice).all()).results;
-    for (const p of part) ph.push(p);
-  }
-  // Optional: serve straight from an R2 public bucket / custom domain to take
-  // load off the Worker. Set the R2_PUBLIC_BASE var to enable (e.g.
-  // https://pub-xxxx.r2.dev  or  https://photos.yourdomain.com). If unset, the
-  // app falls back to streaming via this Worker's GET /photo/:key.
+/* รวมรูปเข้ากับรายการ — แยกออกมาเพื่อให้ GET /psif ดึงรูปมาพร้อมรายการใน batch เดียวได้
+   Optional: serve straight from an R2 public bucket / custom domain to take load off the
+   Worker. Set the R2_PUBLIC_BASE var to enable (e.g. https://pub-xxxx.r2.dev). If unset,
+   the app falls back to streaming via this Worker's GET /photo/:key. */
+function mergePhotos(env, rows, ph) {
   const base = env.R2_PUBLIC_BASE ? env.R2_PUBLIC_BASE.replace(/\/+$/, '') : '';
   const byId = {};
   for (const p of ph) (byId[p.psif_id] ||= []).push({
@@ -557,6 +570,27 @@ async function attachPhotos(env, rows) {
     url: base ? base + '/' + p.r2_key : undefined,
   });
   for (const r of rows) r.photos = byId[r.id] || [];
+}
+async function attachPhotos(env, rows) {
+  if (!rows.length) return;
+  const ids = rows.map(r => r.id);
+  let ph;
+  if (ids.length <= 90) {
+    // D1 caps bound parameters at ~100 per query — ชุดเล็ก (เปิดรายการเดียว/หลังบันทึก) ใช้ IN ตรง ๆ
+    ph = (await env.DB.prepare(
+      `SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id IN (${ids.map(()=>'?').join(',')})`
+    ).bind(...ids).all()).results || [];
+  } else {
+    // ชุดใหญ่: ดึงเป็น "ช่วง id" ครั้งเดียวแล้วคัดเฉพาะ id ที่ต้องการ
+    // (เดิมยิงทีละ 90 id ต่อกันหลายสิบรอบ — ต้นเหตุหลักที่ระบบช้าลงเมื่อข้อมูลเยอะขึ้น)
+    let lo = Infinity, hi = -Infinity;
+    for (const v of ids) { const x = +v; if (x < lo) lo = x; if (x > hi) hi = x; }
+    const want = new Set(ids.map(Number));
+    ph = ((await env.DB.prepare(
+      'SELECT id,psif_id,kind,r2_key FROM psif_photos WHERE psif_id BETWEEN ? AND ?'
+    ).bind(lo, hi).all()).results || []).filter(p => want.has(+p.psif_id));
+  }
+  mergePhotos(env, rows, ph);
 }
 
 /* ---------------- photos (R2) ---------------- */
@@ -580,7 +614,9 @@ async function servePhoto(env, key) {
   if (!obj) return err('photo not found', 404);
   const h = new Headers(CORS);
   obj.writeHttpMetadata(h);
-  h.set('Cache-Control', 'public, max-age=31536000');
+  // คีย์รูปมี timestamp+สุ่มอยู่แล้ว = ไฟล์เดิมไม่มีวันเปลี่ยน → immutable กันเบราว์เซอร์ยิงมาถามซ้ำ
+  h.set('Cache-Control', 'public, max-age=31536000, immutable');
+  if (obj.httpEtag) h.set('ETag', obj.httpEtag);
   return new Response(obj.body, { headers: h });
 }
 

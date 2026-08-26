@@ -575,7 +575,7 @@ button.ptag{cursor:pointer}
         <button class="btn btn-green btn-sm hidden" id="reportBtn" onclick="exportReportXlsx()">📊 Report</button>
       </div>
       <div id="listScopeBar"></div>
-      <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="listPage=1;renderList()" style="margin-bottom:8px">
+      <input class="inp" id="listSearch" placeholder="🔍 ค้นหา รายละเอียด / เครื่องจักร / ผู้รายงาน" oninput="listPage=1;debounce('list',renderList)" style="margin-bottom:8px">
       <!-- ตัวกรองประเภท (2026-08-10): PSIF (Con) · Near miss · PSIF (Behavior) -->
       <div class="chips cat-chips" id="listCatChips"></div>
       <div class="chips" id="listChips"></div>
@@ -697,7 +697,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.5';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.6';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -861,6 +861,10 @@ async function bootstrap(){
     const d = await api('/bootstrap');
     state.employees=d.employees; state.areas=d.areas; state.categories=FIXED_CATS;
     state.targets=d.targets; state.issuances=d.issuances;
+    /* perf (2026-08-26): ตอนยังไม่ล็อกอินไม่ต้องดึงรายการ PSIF เลย — enterApp() จะดึงรอบเดียว
+       หลังรู้ตัวตน (backend ต้องรู้ตัวตนก่อนจึงจะ scope ตามแผนกให้ได้อยู่แล้ว)
+       เดิมดึงที่นี่ 1 รอบ แล้ว enterApp ดึงซ้ำอีก 1 รอบ = ข้อมูลก้อนใหญ่ถูกโหลด 2 เท่าทุกครั้งที่เปิดแอป */
+    if(!CURRENT_USER){ state.items=state.items||[]; return; }
     // โหลดรายการ PSIF แยกกัน: ถ้าพลาด อย่าให้ทับรายชื่อพนักงาน (จะได้ล็อกอินได้เสมอ)
     try{ const r = await api('/psif'); state.items=r.items; }
     catch(e){ state.items=state.items||[]; toast('โหลดรายการไม่สำเร็จ: '+e.message,'orange'); }
@@ -900,7 +904,7 @@ async function patchPsif(id,patch,photos){
   } else {
     const it = state.items.find(x=>x.id==id);
     const old = {...it};
-    Object.assign(it,patch);
+    Object.assign(it,patch); forgetHay(it);
     if(photos) it.photos=[...(it.photos||[]),...photos];
     if(old.reporter_id && old.reporter_id!==by._by)
       notifMessages(old,patch).forEach(m=>localNotify(old.reporter_id,id,m));
@@ -921,11 +925,15 @@ async function deletePsif(id){
 async function upsertMaster(table,obj){
   if(online()) await api('/'+table,{body:obj});
   const arr = state[table]; const i = arr.findIndex(x=>x.id===obj.id);
-  if(i>=0) arr[i]={...arr[i],...obj}; else arr.push(obj); demoSave();
+  if(i>=0) arr[i]={...arr[i],...obj}; else arr.push(obj);
+  if(table==='employees') empChanged();          // แก้ในที่เดิม → ต้องล้าง Map ทะเบียนพนักงาน
+  demoSave();
 }
 async function delMaster(table,id){
   if(online()) await api('/'+table+'/'+encodeURIComponent(id),{method:'DELETE'});
-  state[table]=state[table].filter(x=>x.id!==id); demoSave();
+  state[table]=state[table].filter(x=>x.id!==id);
+  if(table==='employees') empChanged();
+  demoSave();
 }
 /* ย้ายข้อมูล PSIF ทั้งหมดจากรหัสหนึ่งไปอีกรหัสหนึ่ง (2026-08-02)
    mode 'rename' = เปลี่ยนรหัสพนักงาน — ย้ายข้อมูลเดิม + แจ้งเตือน แล้ว "ลบรหัสเก่า" ออก
@@ -942,7 +950,7 @@ async function transferEmployee(from,to,mode,extra={}){
   let dst=state.employees.find(e=>up(e.id)===up(to));
   if(!dst){ dst={id:to,name:extra.to_name||src.name,vsm:extra.to_vsm??(src.vsm||''),role:mode==='resign'?'user':(src.role||'user'),active:1}; state.employees.push(dst); }
   let moved=0;
-  state.items.forEach(i=>{ if(up(i.reporter_id)===up(from)){ i.reporter_id=dst.id; i.reporter_name=dst.name; i.vsm=i.vsm||dst.vsm||''; moved++; } });
+  state.items.forEach(i=>{ if(up(i.reporter_id)===up(from)){ i.reporter_id=dst.id; i.reporter_name=dst.name; i.vsm=i.vsm||dst.vsm||''; forgetHay(i); moved++; } });
   if(mode==='rename'){
     state.items.forEach(i=>{ if(up(i.done_by)===up(from))i.done_by=dst.id; if(up(i.safety_by)===up(from))i.safety_by=dst.id; });
     (state.notifications||[]).forEach(n=>{ if(up(n.employee_id)===up(from))n.employee_id=dst.id; if(up(n.by_id)===up(from))n.by_id=dst.id; });
@@ -991,7 +999,20 @@ async function addIssuance(vsm,year){
   demoSave();
 }
 function hasIssuance(vsm,year){ return state.issuances.some(i=>i.vsm===vsm && i.year==year); }
-function empVsm(id){ const e=state.employees.find(x=>x.id===id); return e?(e.vsm||''):''; }
+/* perf (2026-08-26): เดิม empVsm() ไล่หาในอาร์เรย์พนักงานทีละคน และถูกเรียก 1 ครั้งต่อ 1 เรื่อง
+   ผ่าน itemDept() — 2,000 เรื่อง × 400 คน = แปดแสนรอบต่อการวาดหน้าจอ "หนึ่งครั้ง"
+   (หน้าติดตามวาดทีเดียวนับชิป ~10 รอบ = หลายล้านรอบต่อการพิมพ์ 1 ตัวอักษร)
+   เปลี่ยนเป็น Map ที่สร้างครั้งเดียว และสร้างใหม่เมื่อทะเบียนพนักงานเปลี่ยน */
+let _empById=null, _empSrc=null;
+function empMap(){
+  if(!_empById || _empSrc!==state.employees || _empById.size!==state.employees.length){
+    _empById=new Map(); _empSrc=state.employees;
+    for(const e of state.employees) _empById.set(e.id,e);
+  }
+  return _empById;
+}
+function empChanged(){ _empById=null; _empSrc=null; }   // เรียกเมื่อ "แก้ไขในที่เดิม" (ความยาวอาร์เรย์ไม่เปลี่ยน)
+function empVsm(id){ const e=empMap().get(id); return e?(e.vsm||''):''; }
 /* หน่วยงานที่ใช้ "จัดกลุ่ม/กรอง" บนหน้าจอ — ยึดแผนกปัจจุบันของเจ้าของเรื่องก่อนเสมอ
    (i.vsm คือแผนก ณ วันที่ส่ง ถ้าคนย้ายแผนก ใบเก่าจะค้างอยู่แผนกเดิม → กลุ่มใหม่ขึ้น 0)
    ตกมาที่ i.vsm เมื่อไม่พบรหัสในทะเบียนพนักงานแล้ว (ข้อมูลนำเข้า/รหัสที่ถูกลบ) */
@@ -1103,6 +1124,17 @@ async function importRows(rows){
 
 /* ---- duplicate search (keyword + machine), mirrors worker ---- */
 function norm(s){return (s||'').toLowerCase().trim().replace(/\s+/g,' ');}
+/* perf: หน่วงการวาดหน้าจอระหว่างพิมพ์ — พิมพ์รัว ๆ จะวาดครั้งเดียวตอนหยุดพิมพ์
+   (เดิมพิมพ์ 1 ตัวอักษร = กรอง+นับ+สร้าง HTML ใหม่ทั้งหน้าทันที) */
+const _dbT={};
+function debounce(key,fn,ms=180){ clearTimeout(_dbT[key]); _dbT[key]=setTimeout(fn,ms); }
+/* perf: ข้อความสำหรับค้นหาของแต่ละเรื่อง — คิดครั้งเดียวแล้วเก็บติดตัวเรื่องไว้
+   (เดิมต่อสตริง + toLowerCase ใหม่ทุกครั้งที่พิมพ์ × ทุกเรื่อง × ทุกชิปที่ต้องนับ)
+   เรื่องที่ถูกแก้จะได้ออบเจ็กต์ใหม่จาก API เสมอ ค่าที่จำไว้จึงไม่มีทางเก่าค้าง */
+function forgetHay(i){ if(i) delete i._hay; }   // เรียกทุกครั้งที่แก้ฟิลด์ของเรื่องเดิมโดยไม่สร้างออบเจ็กต์ใหม่
+function itemHay(i){
+  return i._hay || (i._hay = norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')));
+}
 function toks(s){return new Set(norm(s).replace(/[^\p{L}\p{N} ]/gu,' ').split(/\s+/).filter(w=>w.length>=2));}
 function jacc(a,b){if(!a.size||!b.size)return 0;let i=0;for(const x of a)if(b.has(x))i++;return i/(a.size+b.size-i);}
 async function findDupes(title,machine,excludeId){
@@ -1394,9 +1426,11 @@ let safetyCat='all';  // ตัวกรองประเภทของหน�
 /* แถบชิปเลือกประเภท — ใช้ร่วมกันทั้งหน้าติดตามและหน้า Safety
    นับจำนวนจาก "รายการที่จะได้เห็นถ้ากดชิปนี้" (ผ่านตัวกรองอื่นแล้ว) ตัวเลขจึงตรงกับที่แสดงจริง */
 function catChipsHtml(items,cur,fn){
+  const cnt={};                                  // perf: เดินรอบเดียวนับครบทุกประเภท (เดิมกรองซ้ำประเภทละรอบ)
+  for(const i of items){ const k=catKeyOf(i.category); cnt[k]=(cnt[k]||0)+1; }
   const chips=[['all','🏷️ ทุกประเภท'],...FIXED_CATS.map(c=>[c.key,c.name])];
   return chips.map(([k,l])=>{
-    const n=k==='all'?items.length:items.filter(i=>catKeyOf(i.category)===k).length;
+    const n=k==='all'?items.length:(cnt[k]||0);
     return `<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k.replace(/'/g,"\\'")}')">${l} (${n})</button>`;
   }).join('');
 }
@@ -1553,23 +1587,28 @@ function statusBadge(it){
 /* base ตาม scope ที่เลือก — ใช้ร่วมกันทั้ง renderList และ export Report (ข้อ 5)
    Admin แผนก: backend ส่งมาเฉพาะแผนกอยู่แล้ว (ข้อ 3) แต่กรองซ้ำฝั่งนี้กันเหนียว */
 function listBaseItems(){
-  let base=state.items.slice();
+  let base=state.items;                          // perf: ไม่ต้อง copy ทั้งอาร์เรย์ทิ้ง — ตัวกรองสร้างอาร์เรย์ใหม่ให้อยู่แล้ว
   if(isDeptAdmin()) base=base.filter(i=>((i.vsm||'').trim()===myVsm()) || i.reporter_id===CURRENT_USER.id);
   if(listScope==='mine') base=base.filter(i=>i.reporter_id===CURRENT_USER.id);
   else if(listScope!=='all') base=base.filter(i=>itemDept(i)===listScope);
   return base;
+}
+/* ชุดตั้งต้นของหน้าติดตาม = scope + คำค้น (ยังไม่กรองสถานะ/ประเภท)
+   renderList คิดชุดนี้ครั้งเดียวแล้วส่งต่อให้ทุกชิปใช้ซ้ำ */
+function listSearchedItems(){
+  const q=norm($('listSearch').value);
+  const arr=listBaseItems();
+  return q? arr.filter(i=>itemHay(i).includes(q)) : arr;
 }
 /* รายการหลังกรองครบ (scope + สถานะ + ประเภท + ค้นหา) — ไม่รวมแบ่งหน้า
    o = ค่าแทนที่ชั่วคราว ใช้ตอนนับตัวเลขบนชิป ("ถ้ากดชิปนี้จะเห็นกี่รายการ") */
 function listFilteredItems(o={}){
   const st = o.status!==undefined?o.status:listFilter;
   const cat= o.cat!==undefined?o.cat:listCat;
-  const q=norm($('listSearch').value);
-  let arr=listBaseItems();
+  let arr = o.base || listSearchedItems();                   // o.base = ชุดที่ผ่าน scope+คำค้นมาแล้ว
   if(st==='nophoto') arr=arr.filter(needsPhotoFix);          // 2026-08-10: PSIF (Con) ที่ยังขาดรูปก่อน/หลัง
   else if(st!=='all') arr=arr.filter(i=>stageOf(i)===st);
   if(cat!=='all') arr=arr.filter(i=>matchCat(i,cat));
-  if(q) arr=arr.filter(i=>norm((i.title||'')+' '+(i.detail||'')+' '+(i.machine||'')+' '+(i.reporter_name||'')+' '+(i.no||'')).includes(q));
   return arr;
 }
 function renderList(){
@@ -1597,22 +1636,27 @@ function renderList(){
       <button class="chip ${listScope==='all'?'on':''}" onclick="listScope='all';listPage=1;renderList()">🏭 แผนกของฉัน (${esc(myVsm()||'-')})</button>
     </div>`;
   } else { scopeEl.innerHTML=''; }
+  /* perf (2026-08-26): เดิมทุกตัวเลขบนชิปเรียก listFilteredItems() ใหม่หมด = กรองทั้งชุดข้อมูล
+     ซ้ำกันสิบกว่ารอบต่อการวาด 1 ครั้ง — ตอนนี้กรอง scope+คำค้นครั้งเดียว แล้วนับทุกชิปจากชุดนั้น */
+  const searched=listSearchedItems();
   // ตัวกรองประเภท (2026-08-10) — อยู่เหนือชิปสถานะ ใช้ร่วมกับสถานะ/ค้นหาได้
-  $('listCatChips').innerHTML=catChipsHtml(listFilteredItems({cat:'all'}),listCat,'setListCat');
+  $('listCatChips').innerHTML=catChipsHtml(listFilteredItems({base:searched,cat:'all'}),listCat,'setListCat');
   // status chips — ตัวเลขคิดตามประเภท/คำค้นที่เลือกอยู่ จะได้ตรงกับรายการที่เห็น
   const chips=[['all','ทั้งหมด'],['recorded','บันทึกเข้าระบบ'],['safety','Safety'],['inprogress','กำลังดำเนินการ'],['done','เสร็จ'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
-  const nFix=listFilteredItems({status:'nophoto'}).length;
+  const byCat=listCat==='all'?searched:searched.filter(i=>matchCat(i,listCat));
+  const nBy={}; let nFix=0;                                  // เดินรอบเดียว นับครบทุกสถานะ + ของที่ขาดรูป
+  for(const i of byCat){ const st=stageOf(i); nBy[st]=(nBy[st]||0)+1; if(needsPhotoFix(i)) nFix++; }
   if(nFix) chips.push(['nophoto','⚠️ ขาดรูป']);            // โชว์เฉพาะตอนมีของค้าง — ไม่มีก็ไม่ต้องรก
   else if(listFilter==='nophoto') listFilter='all';
-  const nRet=listFilteredItems({status:'returned'}).length;   // v2.4 — เรื่องที่ส่งกลับให้ผู้รายงานแก้ไข
+  const nRet=nBy.returned||0;                                // v2.4 — เรื่องที่ส่งกลับให้ผู้รายงานแก้ไข
   if(nRet) chips.splice(2,0,['returned','↩️ ส่งกลับให้แก้ไข']);
   else if(listFilter==='returned') listFilter='all';
   $('listChips').innerHTML=chips.map(([k,l])=>{
-    const n=k==='nophoto'?nFix:listFilteredItems({status:k}).length;
+    const n=k==='nophoto'?nFix:(k==='all'?byCat.length:(nBy[k]||0));
     const extra=k==='nophoto'?' warn-chip':(k==='returned'?' ret-chip':'');
     return `<button class="chip ${listFilter===k?'on':''}${extra}" onclick="listFilter='${k}';listPage=1;renderList()">${l} (${n})</button>`;
   }).join('');
-  const arr=listFilteredItems();
+  const arr=listFilteredItems({base:searched});
   // req #4: แบ่งหน้า — แสดงทีละ 20 รายการ
   const pages=Math.ceil(arr.length/PAGE_SIZE)||1; if(listPage>pages) listPage=pages; if(listPage<1) listPage=1;
   const pageArr=arr.slice((listPage-1)*PAGE_SIZE, listPage*PAGE_SIZE);
@@ -2039,8 +2083,13 @@ function renderSafety(){
   // ตัวกรองประเภท (2026-08-10) — นับเฉพาะในสถานะที่เลือกอยู่
   $('safetyCatChips').innerHTML=catChipsHtml(safetyItems({cat:'all'}),safetyCat,'setSafetyCat');
   const chips=[['recorded','รออนุมัติ'],['returned','↩️ ส่งกลับให้แก้ไข'],['approved','อนุมัติแล้ว'],['not_cardinal','ไม่เข้าข่าย'],['duplicate','ซ้ำ'],['rejected','ไม่อนุมัติ']];
+  /* perf: เดิมนับชิปละ 1 รอบเต็ม (6 รอบ) — ตอนนี้เดินรอบเดียวเก็บทั้งจำนวนตาม status
+     และตามผลตรวจ (safetyKind) ให้ตรงกับกติกาเดิมของ safetyItems() ทุกประการ */
+  const sCat=safetyCat==='all'?state.items:state.items.filter(i=>matchCat(i,safetyCat));
+  const nSt={}, nKind={};
+  for(const i of sCat){ nSt[i.status]=(nSt[i.status]||0)+1; const k=safetyKind(i); nKind[k]=(nKind[k]||0)+1; }
   $('safetyChips').innerHTML=chips.map(([k,l])=>{
-    const n=safetyItems({status:k}).length;
+    const n=(k==='recorded'||k==='returned')?(nSt[k]||0):(nKind[k]||0);
     return `<button class="chip ${safetyFilter===k?'on':''}" onclick="safetyFilter='${k}';safetyPage=1;renderSafety()">${l} (${n})</button>`;
   }).join('');
   let arr = safetyItems();
@@ -2478,7 +2527,7 @@ function openTeam(dept){
   teamDept=dept; teamYear=+($('dashYear').value||yr()); teamQ=''; teamSort='left'; teamPage=1;
   openModal(`👥 ${dept} — รายคน (ปี ${teamYear})`,`
     <div class="team-tools">
-      <input class="inp" placeholder="🔍 ค้นหาชื่อ / รหัสพนักงาน" oninput="teamQ=this.value;teamPage=1;renderTeamList()">
+      <input class="inp" placeholder="🔍 ค้นหาชื่อ / รหัสพนักงาน" oninput="teamQ=this.value;teamPage=1;debounce('team',renderTeamList)">
       <select class="inp" onchange="teamSort=this.value;teamPage=1;renderTeamList()">
         <option value="left">เรียง: เหลือมาก → น้อย</option>
         <option value="sub">เรียง: ส่งมาก → น้อย</option>
@@ -2583,7 +2632,7 @@ function renderSettings(){
     </div>
     <div class="card"><h3>👥 พนักงาน (${state.employees.filter(e=>!isBucketId(e.id)&&e.active!==0).length} คน)</h3>
       <button class="btn btn-blue btn-sm" onclick="editEmp()">➕ เพิ่ม/แก้ไข</button>
-      <input class="inp" id="empSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(empSearch)}" oninput="empSearch=this.value;updateEmpRows()" style="margin:8px 0">
+      <input class="inp" id="empSearch" placeholder="🔍 ค้นหาชื่อ หรือ รหัสพนักงาน (เช่น L-1827)" value="${esc(empSearch)}" oninput="empSearch=this.value;debounce('emp',updateEmpRows)" style="margin:8px 0">
       <div class="scroll-x" style="max-height:280px;overflow-y:auto"><table class="tbl">
         <thead><tr><th>รหัส</th><th>ชื่อ</th><th>หน่วยงาน</th><th>สิทธิ์</th><th></th></tr></thead>
         <tbody id="empRows">${empRows()}</tbody>
@@ -3546,9 +3595,12 @@ function exportPersonCSV(y){
 }
 
 /* ---------------- shared refresh ---------------- */
+/* perf: วาดเฉพาะหน้าที่กำลังเปิดอยู่ — เดิมวาดแดชบอร์ด (ซึ่งไล่นับทุกเรื่อง + สร้างกราฟใหม่ทั้งหมด)
+   ทุกครั้งที่ refreshAll แม้ผู้ใช้จะอยู่หน้าอื่น · เปลี่ยนหน้าเมื่อไร setPane() วาดให้ใหม่อยู่แล้ว */
 function refreshAll(){ const active=document.querySelector('.pane.active'); fillStaticUI();
-  renderDash(); if(active){const id=active.id.replace('pane-','');
-    if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='mgr')renderMgr(); if(id==='settings')renderSettings();} }
+  const id=active?active.id.replace('pane-',''):'';
+  if(id==='home'||!id) renderDash();
+  if(id==='list')renderList(); if(id==='safety')renderSafety(); if(id==='mgr')renderMgr(); if(id==='settings')renderSettings(); }
 
 /* ---------------- modal ---------------- */
 function openModal(t,h){ $('modalTt').textContent=t; $('modalBd').innerHTML=h; $('modalBg').classList.add('open'); }
