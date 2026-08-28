@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS issuances (
 CREATE TABLE IF NOT EXISTS psif (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   no            TEXT DEFAULT '',          -- PSIF No. (issued by admin; blank until then)
+  -- v2.7: วัน-เวลาที่ "ได้เลข No.PSIF" ครั้งแรก (worker ประทับเอง ไม่รับค่าจาก client)
+  --       ส่งเรื่องเดือน 7 แต่ลงเลขเดือน 8 → created_at กับ no_at คนละเดือน (DB เดิม: รัน migrate-2026-08-28-no-at.sql)
+  no_at         TEXT DEFAULT '',
   reporter_id   TEXT NOT NULL,
   reporter_name TEXT DEFAULT '',
   vsm           TEXT DEFAULT '',

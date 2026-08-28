@@ -108,7 +108,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.6', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.7', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -290,6 +290,11 @@ async function psifRoute(env, request, seg) {
         newId = r.meta.last_row_id;
       } else throw e;
     }
+    // v2.7: สร้างมาพร้อมเลข No.PSIF อยู่แล้ว (นำเข้า/ระบบอื่นยิงเข้ามา) → ประทับ "วันที่ได้เลข" ตั้งแต่ต้น
+    if (newId && String(b.no || '').trim()) {
+      try { await env.DB.prepare('UPDATE psif SET no_at=? WHERE id=?').bind(nowISO(), newId).run(); }
+      catch (_) { /* ยังไม่ได้รัน migrate-2026-08-28-no-at.sql — ข้ามไปก่อน อย่าให้การบันทึกล่ม */ }
+    }
     // attach any photos already uploaded (req #2: before-photo)
     if (Array.isArray(b.photos)) {
       for (const p of b.photos) {
@@ -395,18 +400,34 @@ async function psifRoute(env, request, seg) {
       }
     }
 
+    /* ---- v2.7: "วันที่ได้เลข No.PSIF" (no_at) ----
+     *  พนักงานส่งเรื่องเดือน 7 แต่ Admin ลงเลขให้เดือน 8 — ถ้ามีแต่ created_at จะตามงาน/นับรอบผิดเดือน
+     *  · ประทับเวลาที่ server เท่านั้น ไม่รับค่าจาก client (no_at ไม่อยู่ใน ALL_FIELDS จึงแก้จากภายนอกไม่ได้)
+     *  · ประทับเฉพาะตอน "เลขเปลี่ยนจริง" และยังไม่เคยมีวันที่ — สำคัญมากกับข้อมูลเก่าที่มีเลขแต่ไม่มี
+     *    no_at: แก้เนื้อหาเฉย ๆ หน้าแก้ไขจะส่งเลขเดิมกลับมาด้วยทุกครั้ง ถ้าประทับตรงนี้จะกลายเป็น
+     *    "ได้เลขวันนี้" ทั้งที่ได้เลขไปตั้งนานแล้ว · เลขเดิมที่มีวันที่แล้ว แก้พิมพ์ผิดก็ไม่ขยับวันที่
+     *  · ล้างเลขทิ้ง = ล้างวันที่ตามไปด้วย จะได้ไม่ค้างวันที่ของเลขที่ไม่มีอยู่แล้ว */
+    let noAt;
+    if ('no' in b) {
+      const nv = String(b.no || '').trim(), ov = String(oldRow.no || '').trim();
+      if (nv && nv !== ov && !String(oldRow.no_at || '').trim()) noAt = nowISO();
+      else if (!nv && ov) noAt = '';
+    }
+
     const sets = [], bind = [];
     for (const k of ALL_FIELDS) {
       if (k in b) { sets.push(`${k}=?`); bind.push(b[k]); }
     }
+    if (noAt !== undefined) { sets.push('no_at=?'); bind.push(noAt); }
     if (sets.length) {
       sets.push('updated_at=?'); bind.push(nowISO());
       bind.push(id);
       try {
         await env.DB.prepare(`UPDATE psif SET ${sets.join(',')} WHERE id=?`).bind(...bind).run();
       } catch (e) {
-        // ยังไม่ได้รัน migrate-2026-08-23-return-reason.sql — เขียนฟิลด์อื่นให้ผ่านไปก่อน อย่าให้ทั้ง PATCH ล่ม
-        if (!/return_reason/i.test(String(e && e.message))) throw e;
+        // ยังไม่ได้รัน migration ของคอลัมน์เสริม (return_reason / no_at) — เขียนฟิลด์อื่นให้ผ่านไปก่อน
+        // อย่าให้ทั้ง PATCH ล่ม (no_at ไม่อยู่ใน ALL_FIELDS จึงถูกตัดออกจากรอบสองโดยอัตโนมัติ)
+        if (!/return_reason|no_at/i.test(String(e && e.message))) throw e;
         const keys = ALL_FIELDS.filter(k => k in b && k !== 'return_reason');
         const s2 = keys.map(k => `${k}=?`), b2 = keys.map(k => b[k]);
         if (s2.length) {
