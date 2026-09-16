@@ -79,9 +79,16 @@ CREATE TABLE IF NOT EXISTS psif (
   done_at       TEXT DEFAULT '',
   year          INTEGER NOT NULL,
   request_id    TEXT DEFAULT '',          -- idempotency key จาก client กันบันทึกซ้ำ (ว่าง = ข้อมูลเก่า/นำเข้า)
+  -- v2.8: ผูกกับ "งาน" ในระบบ Improvement (ปุ่ม Add Job to Imp. — Super Admin เท่านั้น)
+  --       DB เดิม: รัน migrate-2026-09-17-improvement.sql
+  imp_job_id    INTEGER DEFAULT 0,        -- jobs.id ฝั่ง improvement-db (0 = ยังไม่ได้ส่ง)
+  imp_code      TEXT DEFAULT '',          -- เลขงาน IMP-YYMM-NN
+  imp_status    TEXT DEFAULT '',          -- submitted | in_progress | done | rejected | gone
+  imp_at        TEXT DEFAULT '',          -- วัน-เวลาที่กดส่งเข้าระบบ Improvement
   created_at    TEXT DEFAULT (datetime('now')),
   updated_at    TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_psif_imp ON psif(imp_job_id) WHERE imp_job_id > 0;
 CREATE INDEX IF NOT EXISTS idx_psif_reporter ON psif(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_psif_status   ON psif(status);
 CREATE INDEX IF NOT EXISTS idx_psif_year     ON psif(year);

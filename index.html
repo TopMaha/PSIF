@@ -697,7 +697,7 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(_){ } },
 };
 
-const APP_VERSION='2.7';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
+const APP_VERSION='2.8';   // เลขเวอร์ชันแอป — แสดงที่หน้า login + แถบบนสุด (อัปเดตทีละ 0.1 เมื่อออกรุ่นใหม่)
 let ADMIN_PASSWORD = LS.get('psif_admin_pw','admin1234'); // changeable in code/settings
 const DEFAULT_API = 'https://psif-api.wiphawas-sketchup.workers.dev'; // shared online DB (D1) + photos (R2)
 let API = LS.get('psif_api', DEFAULT_API);
@@ -1251,7 +1251,8 @@ function enterApp(){
   listScope = isDeptAdmin() ? 'all' : 'mine';   // Admin แผนก/Manager เริ่มที่มุมมอง "แผนกของฉัน"
   renderNav(); fillStaticUI(); setPane('home');
   // โหลดรายการใหม่หลังรู้ตัวตน — ตอน bootstrap ยังไม่ล็อกอิน backend จึงยัง scope ตามแผนกให้ไม่ได้ (ข้อ 3)
-  if(online()) reloadItems().then(()=>refreshAll()).catch(()=>{});
+  // v2.8: เช็คงานฝั่งระบบ Improvement ต่อท้ายรอบโหลดแรก — ปิดงานที่โน่นแล้ว ใบ PSIF จะปิดตามเอง
+  if(online()) reloadItems().then(()=>{ refreshAll(); syncImprovement(); }).catch(()=>{});
   loadNotifs().catch(()=>{});
   clearInterval(_notifT); _notifT=setInterval(()=>loadNotifs().catch(()=>{}),60000);
 }
@@ -1732,7 +1733,7 @@ function photoGapBadge(it){
 }
 function cardHtml(it){
   return `<div class="item" onclick="openItem(${it.id})">
-    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray" title="ได้เลขเมื่อ ${esc(noAtText(it))}">📄 ${esc(it.no)}</span>`:''}${dateBadge(it)}${photoGapBadge(it)}</div>
+    <div class="row" style="gap:7px;align-items:center;flex-wrap:wrap">${statusBadge(it)}${it.no?`<span class="badge b-gray" title="ได้เลขเมื่อ ${esc(noAtText(it))}">📄 ${esc(it.no)}</span>`:''}${dateBadge(it)}${photoGapBadge(it)}${impBadge(it)}</div>
     <div class="tt" style="margin-top:7px">${esc(it.title)}</div>
     <div class="mt">
       <span>👤 ${esc(it.reporter_name||it.reporter_id)}</span>
@@ -1743,6 +1744,82 @@ function cardHtml(it){
     ${renderStepper(it)}
     ${baThumbs(it)}
   </div>`;
+}
+
+/* ====================================================================
+ *  v2.8 — "Add Job to Imp." : ส่งใบ PSIF (Con) ไปเปิดเป็นงานใหม่ในระบบ Improvement
+ *  ใครใช้ได้: Super Admin เท่านั้น (backend เช็คซ้ำอีกชั้น ไม่ได้เชื่อปุ่มฝั่งนี้)
+ *  ส่งไปแล้วได้อะไร: งานใหม่ + รูป "ก่อนแก้ไข" ไปโผล่ที่ระบบ Improvement ทันที
+ *  กลับมายังไง: งานถูกปิดฝั่งโน้น → รูป "หลังแก้ไข" ถูกดึงกลับมา แล้วใบนี้ปิดตามให้เอง
+ *               (ปิดให้เฉพาะใบที่ Safety อนุมัติแล้ว — ใบที่ยังไม่อนุมัติจะรอจนอนุมัติ)
+ * ==================================================================== */
+const IMP_URL='https://topmaha.github.io/Improvement-TENNECO/';
+const IMP_ST={
+  submitted:  {t:'รอตรวจสอบ',       c:'b-orange'},
+  in_progress:{t:'กำลังดำเนินการ',   c:'b-blue'},
+  done:       {t:'ปิดงานแล้ว',       c:'b-green'},
+  rejected:   {t:'ไม่อนุมัติ',        c:'b-red'},
+  gone:       {t:'งานถูกลบทิ้งแล้ว',  c:'b-gray'},
+};
+function impOf(it){
+  if(!it||!+it.imp_job_id) return null;
+  return {id:+it.imp_job_id, code:it.imp_code||'', st:IMP_ST[it.imp_status]||IMP_ST.submitted};
+}
+/* ส่งได้เฉพาะ PSIF (Con) ที่ยังไม่เคยส่ง และไม่ได้ถูกส่งกลับให้แก้ไขค้างอยู่ */
+function canSendImp(it){ return !!it && isSuperAdmin() && online() && catIsCon(it.category) && !impOf(it) && it.status!=='returned'; }
+function impBadge(it){
+  const o=impOf(it); if(!o) return '';
+  return `<span class="badge b-purple">🏭 ${esc(o.code||'Improvement')} · ${o.st.t}</span>`;
+}
+function impRow(it){
+  const o=impOf(it);
+  /* งานถูกลบทิ้งฝั่งโน้น — เส้นเชื่อมถูกปลดแล้ว (ปุ่มส่งกลับมาให้กดใหม่ได้)
+     แต่ต้องบอกด้วยว่าเคยส่งไปแล้วและเกิดอะไรขึ้น ไม่ใช่ป้ายหายไปเฉย ๆ */
+  if(!o) return (it&&it.imp_status==='gone'&&it.imp_code)
+    ? `<div class="kv"><span class="k">งาน Improvement</span><span>
+        <span class="badge b-gray">${esc(it.imp_code)} · งานถูกลบทิ้งแล้ว</span>
+        <div class="sub">งานฝั่งระบบ Improvement ถูกลบไป — กด “🏭 Add Job to Imp.” ส่งใหม่ได้</div></span></div>`
+    : '';
+  const wait = it.status!=='done' && it.imp_status!=='rejected' && it.imp_status!=='gone'
+    ? `<div class="sub">พอฝั่งนั้นปิดงาน ใบนี้จะถูกปิดตามให้อัตโนมัติ${it.safety_result==='approved'?'':' (หลัง Safety อนุมัติ)'}</div>` : '';
+  return `<div class="kv"><span class="k">งาน Improvement</span><span>
+    <b>${esc(o.code||'—')}</b> <span class="badge ${o.st.c}" style="font-size:10px">${o.st.t}</span>
+    <div class="sub"><a href="${IMP_URL}" target="_blank" rel="noopener">เปิดระบบ Improvement ↗</a></div>${wait}</span></div>`;
+}
+let _impBusy=false;
+async function sendToImprovement(id){
+  const it=state.items.find(x=>x.id==id);
+  if(!it||_impBusy) return;
+  if(!canSendImp(it)){ toast('ส่งรายการนี้เข้าระบบ Improvement ไม่ได้','red'); return; }
+  const nb=(it.photos||[]).filter(p=>p.kind==='before').length;
+  if(!confirm(`เปิดเป็น "งานใหม่" ในระบบ Improvement จากใบนี้?\n\n`+
+    `เรื่อง: ${it.title}\n`+
+    `หน่วยงาน: ${it.vsm||'-'}\n`+
+    `รูปก่อนแก้ไขที่จะยกไปด้วย: ${nb} รูป${nb?'':' (ใบนี้ยังไม่มีรูปก่อนแก้ไข)'}\n\n`+
+    `เมื่องานนั้นถูกปิดที่ระบบ Improvement ระบบจะดึงรูปหลังแก้ไขกลับมา\n`+
+    `แล้วปิดใบ PSIF นี้ให้เอง (เฉพาะใบที่ Safety อนุมัติแล้ว)`)) return;
+  _impBusy=true;
+  try{
+    const d=await api('/improvement/send',{body:{psif_id:+id}});
+    await reloadItems(); refreshAll();
+    const miss=d.missing_photos?` · ยกรูปไม่ได้ ${d.missing_photos} รูป`:'';
+    toast(d.duplicate ? `ใบนี้เคยส่งไปแล้ว (${d.code})`
+                      : `✅ เปิดงาน ${d.code} ในระบบ Improvement แล้ว · ยกรูปไป ${d.photos} รูป${miss}`,
+          d.duplicate?'orange':'green');
+    openItem(id);
+  }catch(e){ toast('ส่งเข้าระบบ Improvement ไม่สำเร็จ: '+e.message,'red'); }
+  finally{ _impBusy=false; }
+}
+/* เช็คสถานะงานฝั่ง Improvement แบบเงียบ ๆ ตอนเปิดแอป — ไม่มีอะไรเปลี่ยนก็ไม่กวนผู้ใช้
+   (ระบบ Improvement ล่ม/ยังไม่ได้ผูกฐานข้อมูล ต้องไม่กระทบการใช้งาน PSIF) */
+async function syncImprovement(){
+  if(!online()) return;
+  try{
+    const d=await api('/improvement/sync',{body:{}});
+    if(!d||(!d.changed&&!d.closed)) return;
+    await reloadItems(); refreshAll();
+    if(d.closed) toast(`🏁 ระบบ Improvement ปิดงานให้แล้ว ${d.closed} เรื่อง`,'green');
+  }catch(_){ }
 }
 
 /* ---------------- item detail + actions ---------------- */
@@ -1785,6 +1862,8 @@ function openItem(id){
   if(isSafety()||canManage(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px" onclick="openEditItem(${id})">✏️ แก้ไขเนื้อหา (Safety/Admin)</button>`;
   // v2.4: ส่งกลับด้วยตัวเอง — ใช้ได้ทุกเหตุผล (รูปเบลอ · เนื้อหาไม่ชัด · ข้อมูลไม่ครบ) ไม่ใช่แค่ตอนเปลี่ยนประเภท
   if(canReturnItem(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--rose);border-color:var(--rose-bd)" onclick="openReturnItem(${id})">↩️ ส่งกลับให้ผู้รายงานแก้ไข</button>`;
+  // v2.8: Super Admin ตรวจใบ PSIF (Con) แล้วเห็นว่าเข้าข่ายงาน Improvement — กดส่งต่อได้จากตรงนี้เลย
+  if(canSendImp(it)) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--purple);border-color:#DDD3FB" onclick="sendToImprovement(${id})">🏭 Add Job to Imp.</button>`;
   if(isSuperAdmin()) actions+=`<button class="btn btn-line btn-block" style="margin-top:8px;color:var(--red)" onclick="if(confirm('ลบรายการนี้?'))delItem(${id})">🗑️ ลบ</button>`;
 
   openModal('รายละเอียด PSIF', `
@@ -1801,6 +1880,7 @@ function openItem(id){
     <div class="kv"><span class="k">ประเภท</span><span>${esc(catLabel(it.category))}</span></div>
     <div class="kv"><span class="k">พื้นที่</span><span>${esc(it.area_id||'-')}</span></div>
     <div class="kv"><span class="k">เครื่องจักร</span><span>${esc(it.machine||'-')}</span></div>
+    ${impRow(it)}
     ${it.detail?`<div class="kv"><span class="k">รายละเอียด</span><span>${esc(it.detail)}</span></div>`:''}
     ${it.suggestion?`<div class="kv"><span class="k">ข้อเสนอแนะ</span><span>${esc(it.suggestion)}</span></div>`:''}
     ${it.safety_note?`<div class="kv"><span class="k">หมายเหตุ Safety</span><span>${esc(it.safety_note)}</span></div>`:''}
@@ -2635,7 +2715,7 @@ function renderSettings(){
       การอนุมัติจาก Safety: <b>Done</b> = อนุมัติ · <b>ไม่เข้าข่าย…</b> = ไม่เข้าข่าย PSIF Cardinal rules · <b>ซ้ำ</b> = ซ้ำ · เว้นว่าง = รอ Safety<br>
       การดำเนินการ: <b>Completed</b> = เสร็จ/จบแล้ว · <b>Scheduled</b> = กำลังดำเนินการ · เว้นว่าง = ยังไม่เริ่ม<br>
       วันที่: รับเลข Excel (เช่น 46050), 15/01/2567 (พ.ศ.) หรือ 2026-01-15 ก็ได้ · ไม่ต้องมีรูป</span></div>
-      <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked> ข้ามแถวแรก (หัวตาราง)</label>
+      <label style="display:flex;align-items:flex-start;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="importHeader" checked style="flex:0 0 auto;margin-top:2px"><span>ข้ามแถวแรกถ้าเป็น<b>หัวตาราง</b> <span class="sub">(ระบบตรวจให้เอง — วางมาเฉพาะข้อมูลก็ไม่หายสักแถว)</span></span></label>
       <textarea class="inp" id="importBox" style="min-height:120px;font-family:monospace;font-size:12.5px" placeholder="วางข้อมูลจาก Excel ที่นี่..."></textarea>
       <div class="row" style="margin-top:8px">
         <button class="btn btn-line btn-sm" onclick="previewImport()">🔎 ตรวจสอบ/พรีวิว</button>
@@ -2769,9 +2849,39 @@ function parseRole(s){
   if(/super|admin|ผู้ดูแล/.test(t)) return 'admin';
   return 'user';
 }
+/* ---- "ข้ามแถวแรก (หัวตาราง)" (แก้ 2026-09-17) --------------------------------
+ *  เดิม: ติ๊กไว้ = ตัดแถวแรกทิ้ง "เสมอ" — แต่คนส่วนใหญ่คัดลอกมาเฉพาะข้อมูล ไม่ได้ลากหัวตารางมาด้วย
+ *  ผลคือแถวแรกที่เป็นข้อมูลจริงหายไปทุกครั้ง: วาง 2 คนลงได้ 1 คน · วาง 10 คนลงได้ 9 คน (N-1 ตลอด)
+ *  ตอนนี้: ตัดเฉพาะแถวที่ "เป็นหัวตารางจริง" (มีคำว่า รหัส/ชื่อ/หน่วยงาน/วันที่… อยู่ในแถว)
+ *  ถ้าหัวตารางแปลกจนตรวจไม่เจอ ก็ไม่เงียบหาย — แถวนั้นจะโผล่ในพรีวิวว่า "ข้ามแถวนี้" ให้เห็น
+ * ---------------------------------------------------------------------------- */
+/* ชื่อคอลัมน์ที่เจอจริงในไฟล์ Excel ของโรงงาน — จงใจ "ไม่ใส่ .*" ท้ายคำ
+   เพราะข้อมูลจริงบางช่องขึ้นต้นเหมือนชื่อคอลัมน์ (เช่นช่องข้อเสนอแนะที่พิมพ์ว่า "แนวทางแก้ไข: …") */
+const HEAD_WORD=/^(no\.?|ลำดับ(ที่)?|ที่|#|รหัส\s*(พนักงาน|เดิม|ใหม่|ประจำตัว)?|emp(loyee)?\s*(id|no\.?|code)?|id|code|ชื่อ(\s*[-–]?\s*สกุล|พนักงาน|จริง)?|name|full\s*name|หน่วยงาน(\s*\/\s*vsm)?|แผนก|vsm|dept(artment)?|section|สิทธิ์|ตำแหน่ง|role|position|วันที่(\s*(แจ้ง|บันทึก|เสร็จ))?|date|ประเภท(\s*(เรื่อง|งาน))?|type|เรื่อง|หัวข้อ|subject|title|รายละเอียด|detail|ข้อเสนอแนะ(\s*การแก้ไข)?|แนวทาง(\s*(การแก้ไข|แก้ไข))?|suggestion|safety|การอนุมัติ(\s*จาก\s*safety)?|การดำเนินการ|action|status|สถานะ|หมายเลข(\s*(psif|no\.?))?|no\.?\s*psif|สถานที่(\s*\/\s*เครื่องจักร)?|เครื่องจักร|location|area|machine|remark|หมายเหตุ)$/i;
+function looksLikeHeaderRow(cells){
+  const c=(cells||[]).map(x=>String(x||'').trim().replace(/\s+/g,' ').replace(/[:：]$/,'')).filter(Boolean);
+  if(!c.length) return false;
+  const hits=c.filter(x=>HEAD_WORD.test(x)).length;
+  /* ต้องเข้าเค้าหัวตารางอย่างน้อย 2 ช่อง — ช่องเดียวที่บังเอิญตรงชื่อคอลัมน์
+     ไม่ควรทำให้ทั้งแถว (ซึ่งอาจเป็นข้อมูลจริง) หายไป · โหมดที่มีคอลัมน์เดียวจริง ๆ
+     (🚪 ลาออก = มีแต่รหัสพนักงาน) ยอมให้ช่องเดียวพอ */
+  return hits>=2 || (c.length===1 && hits===1);
+}
+/* แถวหัวตารางที่ถูกตัดออกจริงในรอบล่าสุด — พรีวิวเอาไปบอกผู้ใช้ว่าตัดอะไรไป */
+let _empBulkHead=null, _importHead=null;
+function stripHeaderRow(rows, on){
+  if(on && rows.length && looksLikeHeaderRow(rows[0])) return {rows:rows.slice(1), head:rows[0]};
+  return {rows, head:null};
+}
+function headSkipNote(head){
+  if(!head) return '';
+  return `<div class="note">ตัดแถวหัวตารางออก 1 แถว: <b>${esc(head.map(c=>(c||'').trim()).filter(Boolean).join(' | '))}</b>
+    — ถ้านี่คือข้อมูลจริง ให้เอาเครื่องหมายถูกหน้า “ข้ามแถวแรก” ออก แล้วกดตรวจสอบใหม่</div>`;
+}
 function parseEmpBulkRows(){
-  let rows=parseTSV($('empBulkBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
-  if($('empBulkHeader').checked && rows.length) rows=rows.slice(1);
+  const all=parseTSV($('empBulkBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
+  const {rows,head}=stripHeaderRow(all, $('empBulkHeader').checked);
+  _empBulkHead=head;
   return rows.map(r=>r.map(c=>(c||'').trim()));
 }
 /* ---- โหมด ➕ เพิ่ม/แก้ไขรายชื่อ ---- */
@@ -2856,7 +2966,7 @@ function previewEmpBulk(){
   _empBulkRecs = m==='add'?buildAddRecs(rows) : m==='resign'?buildResignRecs(rows) : buildRenameRecs(rows);
   const box=$('empBulkPreview'), btn=$('empBulkBtn');
   btn.textContent=EMP_BULK_CTA[m];
-  if(!_empBulkRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — คัดลอกจาก Excel แล้ววางในช่องด้านบนก่อน (คั่นด้วย Tab)</div>'; btn.disabled=true; return; }
+  if(!_empBulkRecs.length){ box.innerHTML=headSkipNote(_empBulkHead)+'<div class="warn">ไม่พบข้อมูล — คัดลอกจาก Excel แล้ววางในช่องด้านบนก่อน (คั่นด้วย Tab)</div>'; btn.disabled=true; return; }
   const cnt=k=>_empBulkRecs.filter(r=>r.st===k).length;
   const todo=_empBulkRecs.filter(r=>EMP_BULK_DO.includes(r.st));
   const moved=todo.reduce((s,r)=>s+(r.cnt||0),0);
@@ -2894,7 +3004,7 @@ function previewEmpBulk(){
     if(m==='resign') return `<tr><td>${r.n}</td><td>${esc(r.id||'—')}</td><td>${esc(r.name||'—')}</td><td>${esc(r.vsm||'—')}</td><td>${r.cnt==null?'—':r.cnt}</td><td>${esc(r.to||'—')}</td><td>${st}</td></tr>`;
     return `<tr><td>${r.n}</td><td>${esc(r.id||'—')}</td><td><b>${esc(r.to||'—')}</b></td><td>${esc(r.name||'—')}</td><td>${esc(r.vsm||'—')}</td><td>${r.cnt==null?'—':r.cnt}</td><td>${st}</td></tr>`;
   }).join('');
-  box.innerHTML=`<div class="team-sum" style="margin-bottom:8px">${sum}</div>${extra}
+  box.innerHTML=`<div class="team-sum" style="margin-bottom:8px">${sum}</div>${headSkipNote(_empBulkHead)}${extra}
     <div class="scroll-x" style="max-height:300px;overflow-y:auto"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
     ${_empBulkRecs.length>CAP?`<div class="sub" style="margin-top:4px">(แสดง ${CAP} แถวแรก จากทั้งหมด ${_empBulkRecs.length})</div>`:''}`;
   btn.disabled=!todo.length;
@@ -2964,7 +3074,7 @@ function empBulkInner(){
       ${EMP_BULK_MODES.map(o=>`<button class="chip ${m===o.k?'on':''}" onclick="setEmpBulkMode('${o.k}')">${o.t}</button>`).join('')}
     </div>
     <div class="note" style="margin-bottom:8px">${EMP_BULK_HELP[m]}</div>
-    <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="empBulkHeader" ${empBulkHeader?'checked':''} onchange="empBulkHeader=this.checked"> ข้ามแถวแรก (หัวตาราง)</label>
+    <label style="display:flex;align-items:flex-start;gap:7px;font-size:13px;margin-bottom:6px"><input type="checkbox" id="empBulkHeader" ${empBulkHeader?'checked':''} onchange="empBulkHeader=this.checked" style="flex:0 0 auto;margin-top:2px"><span>ข้ามแถวแรกถ้าเป็น<b>หัวตาราง</b> <span class="sub">(ระบบตรวจให้เอง — วางมาเฉพาะข้อมูลก็ไม่หายสักแถว)</span></span></label>
     <textarea class="inp" id="empBulkBox" style="min-height:110px;font-family:monospace;font-size:12.5px" placeholder="${esc(EMP_BULK_PH[m])}" oninput="empBulkText=this.value"></textarea>
     <div class="row" style="margin-top:8px">
       <button class="btn btn-line btn-sm" onclick="previewEmpBulk()">🔎 ตรวจสอบ/พรีวิว</button>
@@ -3193,15 +3303,17 @@ function buildImportRecord(cols){
   };
 }
 function parseImportRows(){
-  let rows=parseTSV($('importBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
-  if($('importHeader').checked && rows.length) rows=rows.slice(1);
+  const all=parseTSV($('importBox').value||'').filter(r=>r.some(c=>(c||'').trim()!==''));
+  // เดิมตัดแถวแรกทิ้งเสมอ = แถวข้อมูลแรกหายทุกครั้ง — ตัดเฉพาะที่เป็นหัวตารางจริง (ดู parseEmpBulkRows)
+  const {rows,head}=stripHeaderRow(all, $('importHeader').checked);
+  _importHead=head;
   return rows.map(cols=>buildImportRecord(cols));
 }
 let _importRecs=[];
 function previewImport(){
   _importRecs=parseImportRows();
   const box=$('importPreview');
-  if(!_importRecs.length){ box.innerHTML='<div class="warn">ไม่พบข้อมูล — วางข้อมูลจาก Excel ก่อน (คั่นด้วย Tab)</div>'; $('importBtn').disabled=true; return; }
+  if(!_importRecs.length){ box.innerHTML=headSkipNote(_importHead)+'<div class="warn">ไม่พบข้อมูล — วางข้อมูลจาก Excel ก่อน (คั่นด้วย Tab)</div>'; $('importBtn').disabled=true; return; }
   const unmatched=_importRecs.filter(r=>!r._matched).map(r=>r._name).filter(Boolean);
   const badDate=_importRecs.filter(r=>!r._dateOk).length;
   const nApproved=_importRecs.filter(r=>r.safety_result==='approved').length;
@@ -3219,7 +3331,7 @@ function previewImport(){
     <td>${esc((r.title||'').slice(0,36))}</td>
     <td>${esc(r.machine||'—')}</td>
     <td>${stLabel(r)}</td></tr>`).join('');
-  box.innerHTML=`
+  box.innerHTML=`${headSkipNote(_importHead)}
     <div class="sub" style="margin-bottom:6px">พบ <b>${_importRecs.length}</b> รายการ · Safety อนุมัติ ${nApproved} · ไม่อนุมัติ ${nRejected} · เสร็จแล้ว ${nDone} · จับคู่พนักงานไม่ได้ ${unmatched.length} · วันที่อ่านไม่ได้ ${badDate}</div>
     ${unmatched.length?`<div class="warn">⚠️ ไม่พบรหัสพนักงาน: ${esc([...new Set(unmatched)].slice(0,10).join(', '))}${unmatched.length>10?' …':''}<br>(จะบันทึกโดยใช้รหัส/ชื่อที่วางมา และไม่ทราบหน่วยงาน)</div>`:''}
     ${badDate?`<div class="warn">⚠️ ${badDate} แถววันที่อ่านไม่ได้ — จะใช้ปี ${yr()} แทน (ตรวจรูปแบบวันที่)</div>`:''}

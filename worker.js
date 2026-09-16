@@ -108,7 +108,7 @@ export default {
 
       switch (head) {
         case '':
-        case 'health':    return ok({ service: 'psif', version: '2.7', time: nowISO() });
+        case 'health':    return ok({ service: 'psif', version: '2.8', time: nowISO() });
         case 'bootstrap': return await bootstrap(env);
         case 'psif':      return await psifRoute(env, request, seg);
         case 'employees':
@@ -124,6 +124,7 @@ export default {
         case 'dupe':      return await dupeRoute(env, url);
         case 'report':    return await reportRoute(env, url, seg);
         case 'import':    return await importRoute(env, request);
+        case 'improvement': return await improvementRoute(env, request, seg);
         case 'notifications': return await notifRoute(env, request, url, seg);
         default:          return err('not found: /' + head, 404);
       }
@@ -132,6 +133,238 @@ export default {
     }
   },
 };
+
+/* ============================================================
+ *  v2.8 — "Add Job to Imp." : ใบ PSIF (Con) → งานใหม่ในระบบ Improvement
+ *  หน้าเว็บระบบ Improvement: https://topmaha.github.io/Improvement-TENNECO/
+ *
+ *  ทำไมต้องมี: ใบ PSIF (Con) หลายใบคืองาน Improvement อยู่แล้ว เดิมต้องพิมพ์ซ้ำ
+ *    + อัปโหลดรูปใหม่ทั้งชุดในอีกระบบ — ตอนนี้ Super Admin กดปุ่มเดียวจบ
+ *
+ *  ไป : POST /improvement/send  {psif_id}  (Super Admin เท่านั้น)
+ *        เปิดงานใหม่ในฐาน improvement-db + คัดลอกรูป "ก่อนแก้ไข" ข้ามถัง R2 ให้ด้วย
+ *  กลับ: POST /improvement/sync            (ใครก็เรียกได้ — อ่านฝั่งโน้นมาอัปเดตฝั่งนี้)
+ *        งานถูกปิดที่ Improvement → ดึงรูป "หลังแก้ไข" กลับมา แล้วปิดใบ PSIF ตาม
+ *        (ปิดให้เฉพาะใบที่ Safety อนุมัติแล้ว — ใบที่ยังไม่อนุมัติจะพักไว้ก่อน
+ *         พอ Safety อนุมัติเมื่อไร รอบ sync ถัดไปจะปิดให้เองโดยไม่ต้องกดอะไรอีก
+ *         เพื่อไม่ให้ใบหนึ่งกระโดดข้ามขั้นตอนตรวจสอบไปเป็น "เสร็จ" เฉย ๆ)
+ *
+ *  ทั้งสองทางเขียนผ่าน binding โดยตรง (IMP_DB / IMP_BUCKET) ไม่ได้ยิง HTTP ข้ามระบบ
+ *  จึงไม่ต้องมีกุญแจ/โทเคนให้หลุด และฝั่ง Improvement ไม่ต้องแก้โค้ดเลย
+ * ============================================================ */
+const IMP_APP_URL = 'https://topmaha.github.io/Improvement-TENNECO/';
+const impISO = () => new Date().toISOString();                       // ฝั่ง Improvement เก็บเวลาเป็น ISO เต็ม
+const toPsifTime = s => String(s || '').replace('T', ' ').slice(0, 19) || nowISO();   // ISO → รูปแบบเวลาของ PSIF
+const extOfKey = k => { const m = String(k || '').match(/\.([a-z0-9]{2,5})$/i); return m ? m[1].toLowerCase() : 'jpg'; };
+/* เลขงาน IMP-YYMM-NN อิงเดือนตามเวลาไทย (ต้องตรงกับ thaiParts() ของ worker ฝั่ง Improvement) */
+function impYM(d = new Date()) {
+  const t = new Date(d.getTime() + 7 * 3600 * 1000);
+  return String(t.getUTCFullYear() + 543).slice(2) + String(t.getUTCMonth() + 1).padStart(2, '0');
+}
+/* DB เดิมที่ยังไม่ได้รัน migrate-2026-09-17-improvement.sql — ตอบให้ชัดว่าต้องทำอะไร
+   ไม่ใช่ปล่อยให้ UPDATE ล้มกลางทางแล้วงานไปค้างอยู่ฝั่งเดียว */
+async function impColsReady(env) {
+  try { await env.DB.prepare('SELECT imp_job_id FROM psif LIMIT 1').all(); return true; }
+  catch (_) { return false; }
+}
+function impNotReady(env) {
+  if (!env.IMP_DB) return err('ยังไม่ได้ผูกฐานข้อมูล Improvement (binding IMP_DB) กับ Worker นี้ — ดู wrangler.toml', 501);
+  return null;
+}
+async function copyR2(from, to, fromKey, toKey) {
+  if (!from || !to) return null;
+  const obj = await from.get(fromKey);
+  if (!obj) return null;                                   // ไฟล์ต้นทางหายไปแล้ว — ข้ามไป อย่าให้ทั้งงานล้ม
+  const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg';
+  await to.put(toKey, await obj.arrayBuffer(), {
+    httpMetadata: { contentType: ct, cacheControl: 'public, max-age=31536000, immutable' },
+  });
+  return toKey;
+}
+
+async function improvementRoute(env, request, seg) {
+  if (request.method !== 'POST') return err('method not allowed', 405);
+  if (seg[1] === 'send') return await impSend(env, request);
+  if (seg[1] === 'sync') return await impSync(env, request);
+  return err('not found: /improvement/' + (seg[1] || ''), 404);
+}
+
+/* ---- ไป: เปิดงานใหม่ในระบบ Improvement จากใบ PSIF (Con) ---- */
+async function impSend(env, request) {
+  const b = await request.json().catch(() => ({}));
+  const actor = await getActor(env, request, b && b._by);
+  if (!actor) return err('ไม่ทราบตัวตนผู้ใช้ — โปรดรีเฟรชหน้าแอปแล้วเข้าสู่ระบบใหม่', 401);
+  if (actor.role !== 'admin') return err('เฉพาะ Super Admin เท่านั้นที่ส่งงานเข้าระบบ Improvement ได้', 403);
+  const down = impNotReady(env); if (down) return down;
+  if (!(await impColsReady(env)))
+    return err('ฐานข้อมูล PSIF ยังไม่มีคอลัมน์เชื่อมระบบ Improvement — รัน migrate-2026-09-17-improvement.sql ก่อน', 501);
+
+  const id = +(b.psif_id || b.id || 0);
+  if (!id) return err('psif_id required');
+  const row = await env.DB.prepare('SELECT * FROM psif WHERE id=?').bind(id).first();
+  if (!row) return err('ไม่พบรายการนี้', 404);
+  if (!catIsCon(row.category)) return err('ส่งเข้าระบบ Improvement ได้เฉพาะประเภท PSIF (Con) เท่านั้น');
+  if (row.status === 'returned') return err('เรื่องนี้ถูกส่งกลับให้ผู้รายงานแก้ไขอยู่ — แก้ให้เรียบร้อยก่อนจึงจะส่งได้');
+
+  /* กันส่งซ้ำ 2 ชั้น: คอลัมน์ฝั่งนี้ + request_id ฝั่งโน้น (unique index)
+     ชั้นที่สองสำคัญตอนรอบก่อนเปิดงานสำเร็จแล้วแต่เขียนกลับมาไม่สำเร็จ — ผูกเส้นให้ตรงกันแทนการเปิดซ้ำ */
+  const reqId = 'psif-' + id;
+  const dup = await env.IMP_DB.prepare('SELECT id,code,status FROM jobs WHERE request_id=?').bind(reqId).first();
+  if (dup) {
+    await env.DB.prepare('UPDATE psif SET imp_job_id=?,imp_code=?,imp_status=?,imp_at=COALESCE(NULLIF(imp_at,\'\'),?) WHERE id=?')
+      .bind(dup.id, dup.code, dup.status || 'submitted', nowISO(), id).run();
+    return ok({ job_id: dup.id, code: dup.code, status: dup.status, photos: 0, duplicate: true, url: IMP_APP_URL });
+  }
+
+  const at = impISO();
+  const code = await impNextCode(env);
+  const title = String(row.title || '').trim().slice(0, 200) || '(ไม่มีหัวข้อ)';
+  const ref = row.no ? 'No.' + row.no : 'ใบที่ #' + row.id;
+  const detail = [
+    String(row.detail || '').trim(),
+    row.suggestion ? 'ข้อเสนอแนะจากผู้แจ้ง: ' + String(row.suggestion).trim() : '',
+    'ส่งต่อมาจากระบบ PSIF — ' + ref + ' · แจ้งเมื่อ ' + String(row.created_at || '').slice(0, 10) +
+      (row.area_id ? ' · พื้นที่ ' + row.area_id : ''),
+  ].filter(Boolean).join('\n');
+  /* area ฝั่ง Improvement คือชื่อพื้นที่/ไลน์ (VSM1-4 / OFFICE) = หน่วยงานของใบ PSIF พอดี */
+  const area = String(row.vsm || '').trim() || String(row.area_id || '').trim() || 'OFFICE';
+  const machine = String(row.machine || '').trim() || String(row.area_id || '').trim() || '-';
+
+  const ins = await env.IMP_DB.prepare(
+    'INSERT INTO jobs (code,reporter_id,reporter_name,dept,area,machine,title,detail,status,request_id,created_at,updated_at)' +
+    " VALUES (?,?,?,?,?,?,?,?,'submitted',?,?,?) RETURNING id"
+  ).bind(code, row.reporter_id, row.reporter_name || '', row.vsm || '', area, machine, title, detail, reqId, at, at).first();
+  const jobId = ins && ins.id;
+  if (!jobId) return err('เปิดงานในระบบ Improvement ไม่สำเร็จ');
+
+  /* ยกรูป "ก่อนแก้ไข" ข้ามถัง R2 ไปด้วย (ฝั่งโน้นรับได้สูงสุด 4 รูป/งาน) —
+     คัดลอกไฟล์จริง ไม่ใช่ลิงก์ข้ามระบบ รูปฝั่งนั้นจะได้ไม่หายถ้าใบ PSIF ถูกลบทีหลัง */
+  const src = (await env.DB.prepare(
+    "SELECT r2_key FROM psif_photos WHERE psif_id=? AND kind='before' ORDER BY id").bind(id).all()).results || [];
+  const keys = [];
+  for (const p of src.slice(0, 4)) {
+    const k = 'jobs/' + impYM() + '/psif' + id + '-' + Date.now().toString(36) + '-' +
+              Math.random().toString(36).slice(2, 8) + '.' + extOfKey(p.r2_key);
+    try { if (await copyR2(env.BUCKET, env.IMP_BUCKET, p.r2_key, k)) keys.push(k); }
+    catch (_) { /* รูปเดียวพลาด ไม่ควรทำให้งานทั้งใบเปิดไม่ได้ */ }
+  }
+  const stmts = keys.map(k => env.IMP_DB.prepare(
+    'INSERT INTO job_photos (job_id,kind,r2_key,uploaded_at) VALUES (?,?,?,?)').bind(jobId, 'before', k, at));
+  stmts.push(env.IMP_DB.prepare(
+    "INSERT INTO job_events (job_id,type,status,text,by_id,by_name,by_role,at) VALUES (?,'status','submitted',?,?,?,'admin',?)"
+  ).bind(jobId, 'รับงานมาจากระบบ PSIF (' + ref + ')', actor.id, actor.name || '', at));
+  await env.IMP_DB.batch(stmts);
+  await impNotifyManagers(env, jobId, row.vsm || '', actor,
+    'มีงานใหม่จากระบบ PSIF — ' + code + ' · ' + title.slice(0, 60));
+
+  await env.DB.prepare('UPDATE psif SET imp_job_id=?,imp_code=?,imp_status=?,imp_at=?,updated_at=? WHERE id=?')
+    .bind(jobId, code, 'submitted', nowISO(), nowISO(), id).run();
+  if (row.reporter_id && row.reporter_id !== actor.id)
+    await notify(env, row.reporter_id, id,
+      `🏭 เรื่อง "${String(row.title || '').slice(0, 40)}" ถูกส่งเข้าระบบ Improvement แล้ว (${code})`,
+      actor.id, actor.name || '');
+
+  return ok({ job_id: jobId, code, status: 'submitted', photos: keys.length, missing_photos: src.length - keys.length, url: IMP_APP_URL });
+}
+
+async function impNextCode(env) {
+  const k = impYM();
+  const row = await env.IMP_DB.prepare(
+    'INSERT INTO counters (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k).first();
+  return 'IMP-' + k + '-' + String((row && row.n) || 1).padStart(2, '0');
+}
+/* แจ้งเตือนผู้ดูแลฝั่ง Improvement ให้เหมือนกับที่ระบบนั้นทำเองตอนมีงานใหม่ */
+async function impNotifyManagers(env, jobId, dept, by, message) {
+  try {
+    const rs = await env.IMP_DB.prepare(
+      "SELECT id FROM employees WHERE active=1 AND (role IN ('improve_admin','admin') OR (role='manager' AND dept=?))"
+    ).bind(dept || '').all();
+    const at = impISO();
+    const stmts = (rs.results || []).filter(e => String(e.id) !== String(by.id)).map(e =>
+      env.IMP_DB.prepare('INSERT INTO notifications (employee_id,job_id,message,by_name,created_at) VALUES (?,?,?,?,?)')
+        .bind(e.id, jobId, message, by.name || '', at));
+    for (let i = 0; i < stmts.length; i += 50) await env.IMP_DB.batch(stmts.slice(i, i + 50));
+  } catch (_) { /* แจ้งเตือนพลาด ไม่ควรทำให้การเปิดงานล้ม */ }
+}
+
+/* ---- กลับ: อ่านสถานะงานฝั่ง Improvement มาอัปเดตใบ PSIF ---- */
+async function impSync(env, request) {
+  if (!env.IMP_DB || !(await impColsReady(env))) return ok({ changed: 0, closed: 0, off: true });
+  /* ใบที่ยัง "ไม่นิ่ง" เท่านั้น: งานฝั่งโน้นยังไม่จบ หรือจบแล้วแต่ใบนี้ยังไม่ปิด
+     (ใบที่ปิดครบทั้งสองฝั่งแล้วจะไม่ถูกหยิบมาถามซ้ำอีก) */
+  const rows = (await env.DB.prepare(
+    // request_id/created_at ต้องมาด้วย — isLegacyRow() ใช้ตัดสินว่าใบนี้อยู่ใต้กฎ "ต้องมีรูป" หรือไม่
+    "SELECT id,title,status,category,safety_result,reporter_id,request_id,created_at," +
+    "       imp_job_id,imp_code,imp_status FROM psif" +
+    " WHERE imp_job_id>0 AND (status<>'done' OR imp_status NOT IN ('done','rejected','gone'))").all()).results || [];
+  if (!rows.length) return ok({ changed: 0, closed: 0 });
+
+  const jobs = {};
+  for (let i = 0; i < rows.length; i += 90) {          // D1 จำกัดพารามิเตอร์ ~100 ตัว/คิวรี
+    const ids = rows.slice(i, i + 90).map(r => +r.imp_job_id);
+    const rs = await env.IMP_DB.prepare(
+      'SELECT id,code,status,closed_at FROM jobs WHERE id IN (' + ids.map(() => '?').join(',') + ')').bind(...ids).all();
+    for (const j of (rs.results || [])) jobs[j.id] = j;
+  }
+
+  let changed = 0, closed = 0;
+  const actor = await getActor(env, request);
+  for (const r of rows) {
+    const job = jobs[+r.imp_job_id];
+    /* งานถูกลบทิ้งฝั่งโน้น — ปลดเส้นเชื่อมออก ให้ Super Admin ส่งใหม่ได้ ไม่ใช่ค้างชี้ไปที่ไม่มีอะไร */
+    if (!job) {
+      if (r.imp_status !== 'gone') {
+        await env.DB.prepare("UPDATE psif SET imp_job_id=0,imp_status='gone' WHERE id=?").bind(r.id).run();
+        changed++;
+      }
+      continue;
+    }
+    const st = String(job.status || '');
+    if (st !== r.imp_status) {
+      await env.DB.prepare('UPDATE psif SET imp_status=?,imp_code=? WHERE id=?').bind(st, job.code || r.imp_code, r.id).run();
+      changed++;
+    }
+    if (st === 'done' && r.status !== 'done') { if (await impClosePsif(env, r, job, actor)) closed++; }
+  }
+  return ok({ changed, closed });
+}
+
+/* งานปิดที่ Improvement แล้ว → ดึงรูป "หลังแก้ไข" กลับมา แล้วปิดใบ PSIF ตาม */
+async function impClosePsif(env, r, job, actor) {
+  /* รูปหลังแก้ไข: ยกกลับมาเก็บในถังของ PSIF เอง (ใบ PSIF (Con) ปิดงานโดยไม่มีรูปหลังไม่ได้)
+     ทำครั้งเดียวพอ — ใบที่มีรูปหลังอยู่แล้วไม่ต้องยกซ้ำ */
+  let after = await hasPhotoRow(env, r.id, 'after');
+  if (!after) {
+    const src = (await env.IMP_DB.prepare(
+      "SELECT r2_key FROM job_photos WHERE job_id=? AND kind='after' ORDER BY id").bind(job.id).all()).results || [];
+    for (const p of src.slice(0, 4)) {
+      const k = 'psif/' + r.id + '/after-imp-' + Date.now().toString(36) + '-' +
+                Math.random().toString(36).slice(2, 8) + '.' + extOfKey(p.r2_key);
+      try {
+        if (await copyR2(env.IMP_BUCKET, env.BUCKET, p.r2_key, k)) { await addPhoto(env, r.id, 'after', k); after = true; }
+      } catch (_) { /* ยกรูปไม่สำเร็จ — ด้านล่างจะไม่ปิดใบให้ ปล่อยไว้ให้คนตามเก็บ */ }
+    }
+  }
+  /* ปิดใบจริงเมื่อครบเงื่อนไขของ PSIF เองเท่านั้น:
+     · Safety อนุมัติแล้ว — ยังไม่อนุมัติ = ใบยังต้องผ่านการตรวจก่อน (พอ Safety อนุมัติ รอบ sync
+       ถัดไปจะปิดให้เอง ไม่ต้องกดอะไรอีก) เพื่อไม่ให้ใบกระโดดข้ามขั้นตอนไปเป็น "เสร็จ"
+     · ประเภท PSIF (Con) ต้องมีรูปหลังแก้ไข — กฎเดียวกับตอนปิดงานด้วยมือ */
+  if (r.safety_result !== 'approved') return false;
+  if (catIsCon(r.category) && !after && !isLegacyRow(r)) return false;
+
+  const ev = await env.IMP_DB.prepare(
+    "SELECT by_id,by_name,text FROM job_events WHERE job_id=? AND type='status' AND status='done' ORDER BY id DESC LIMIT 1"
+  ).bind(job.id).first();
+  const detail = 'ปิดงานจากระบบ Improvement (' + (job.code || '') + ')' + (ev && ev.text ? ' — ' + ev.text : '');
+  await env.DB.prepare(
+    "UPDATE psif SET status='done',done_detail=?,done_by=?,done_at=?,imp_status='done',updated_at=? WHERE id=?"
+  ).bind(detail, (ev && ev.by_id) || '', toPsifTime(job.closed_at), nowISO(), r.id).run();
+  if (r.reporter_id)
+    await notify(env, r.reporter_id, r.id,
+      `🏁 เรื่อง "${String(r.title || '').slice(0, 40)}" ถูกปิดงานจากระบบ Improvement แล้ว (${job.code || ''})`,
+      (ev && ev.by_id) || (actor && actor.id) || '', (ev && ev.by_name) || '');
+  return true;
+}
 
 /* ---------------- bulk import (Admin: paste legacy Excel data, no photos) ---------------- */
 async function importRoute(env, request) {

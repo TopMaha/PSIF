@@ -12,6 +12,19 @@ database_id = "229e5d1b-4f23-4ee9-985c-9600bed06d4d"
 binding = "BUCKET"
 bucket_name = "psif-photos"
 
+# ---- ระบบ Improvement (v2.8) — ปุ่ม "Add Job to Imp." บนใบ PSIF (Con) ----
+# Super Admin กดส่งใบ PSIF (Con) ไปเปิดเป็นงานใหม่ในระบบ Improvement พร้อมรูป
+# และเมื่องานฝั่งนั้น "ปิดงาน" ใบ PSIF จะถูกปิดตาม (ดึงรูปหลังแก้ไขกลับมาด้วย)
+# หน้าเว็บของระบบนั้น: https://topmaha.github.io/Improvement-TENNECO/
+[[d1_databases]]
+binding = "IMP_DB"
+database_name = "improvement-db"
+database_id = "f15da400-7496-4ce5-8dc7-86aa28bfc1d3"
+
+[[r2_buckets]]
+binding = "IMP_BUCKET"
+bucket_name = "improvement-photos"
+
 # (optional) serve photos straight from an R2 public bucket / custom domain
 # to take load off the Worker. Uncomment and set after enabling R2 public access.
 # [vars]
