@@ -233,7 +233,7 @@ async function impSend(env, request) {
   const ins = await env.IMP_DB.prepare(
     'INSERT INTO jobs (code,reporter_id,reporter_name,dept,area,machine,title,detail,status,request_id,created_at,updated_at)' +
     " VALUES (?,?,?,?,?,?,?,?,'submitted',?,?,?) RETURNING id"
-  ).bind(code, row.reporter_id, row.reporter_name || '', row.vsm || '', area, machine, title, detail, reqId, at, at).first();
+  ).bind(code, row.reporter_id || '', row.reporter_name || '', row.vsm || '', area, machine, title, detail, reqId, at, at).first();
   const jobId = ins && ins.id;
   if (!jobId) return err('เปิดงานในระบบ Improvement ไม่สำเร็จ');
 
